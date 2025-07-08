@@ -1,11 +1,51 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from typing import Dict, List, Optional
 import json
 import uuid
 from rps import Game, FixedActionPlayer, RandomActionPlayer
 
 app = FastAPI()
+
+# Enable CORS for React frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # React dev server
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# Request/Response Models
+class PlayerCreateRequest(BaseModel):
+    player_name: str
+
+
+class PlayerResponse(BaseModel):
+    player_id: str
+    player_name: str
+
+
+class RoomCreateRequest(BaseModel):
+    room_name: str
+    max_players: str
+    number_of_actions: str
+    player_id: str
+
+
+class RoomJoinRequest(BaseModel):
+    room_id: str
+    player_id: str
+
+
+class RoomResponse(BaseModel):
+    id: str
+    name: str
+    player_count: int
+    max_players: int
+    number_of_actions: int
 
 
 # Data Models
@@ -18,9 +58,10 @@ class Player:
 
 
 class Room:
-    def __init__(self, room_id: str, name: str, max_players: int = 10):
+    def __init__(self, room_id: str, name: str, max_players: int, number_of_actions: int):
         self.id = room_id
         self.name = name
+        self.number_of_actions = number_of_actions
         self.max_players = max_players
         self.players: Dict[str, Player] = {}
         self.messages: List[dict] = []
@@ -31,9 +72,11 @@ class GameManager:
         self.rooms: Dict[str, Room] = {}
         self.players: Dict[str, Player] = {}
 
-    def create_room(self, name: str, number_of_actions: int = 3) -> str:
+    def create_room(self, name: str, max_players: str, number_of_actions: str) -> str:
         room_id = str(uuid.uuid4())[:8]
-        self.rooms[room_id] = Room(room_id, name)
+        max_players = int(max_players)
+        number_of_actions = int(number_of_actions)
+        self.rooms[room_id] = Room(room_id, name, max_players, number_of_actions)
         return room_id
 
     def get_room(self, room_id: str) -> Optional[Room]:
@@ -54,7 +97,7 @@ class GameManager:
         if not player or not room:
             return False
 
-        if len(room.players) >= room.max_players:
+        if len(room.players) >= int(room.max_players):
             return False
 
         # Leave current room if in one
@@ -93,314 +136,88 @@ class GameManager:
 
 manager = GameManager()
 
-# HTML Templates
-lobby_html = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Game Lobby</title>
-    <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-        .room-list { border: 1px solid #ccc; padding: 15px; margin: 10px 0; border-radius: 5px; }
-        .room-item { border: 1px solid #ddd; margin: 10px 0; padding: 10px; border-radius: 3px; }
-        .button { background: #007cba; color: white; padding: 10px 15px; border: none; border-radius: 3px; cursor: pointer; }
-        .button:hover { background: #005a8a; }
-        input[type="text"] { padding: 8px; margin: 5px; border: 1px solid #ccc; border-radius: 3px; }
-        .player-info { background: #f5f5f5; padding: 10px; border-radius: 5px; margin-bottom: 20px; }
-    </style>
-</head>
-<body>
-    <h1>🎮 Game Lobby</h1>
 
-    <div class="player-info">
-        <h3>Player: <span id="player-name"></span></h3>
-        <p>Player ID: <span id="player-id"></span></p>
-    </div>
-
-    <div class="room-list">
-        <h2>Create New Room</h2>
-        <form action="/create_room" method="post">
-            <input type="hidden" name="player_id" id="create-player-id">
-            <input type="text" name="room_name" placeholder="Room Name" required>
-            <input type="text" name="number_of_actions" placeholder="Number of Actions" required>
-            <button type="submit" class="button">Create Room</button>
-        </form>
-    </div>
-
-    <div class="room-list">
-        <h2>Available Rooms</h2>
-        <div id="rooms-container">
-            <p>Loading rooms...</p>
-        </div>
-        <button onclick="loadRooms()" class="button">Refresh Rooms</button>
-    </div>
-
-    <script>
-        // Get player info from URL parameters
-        const urlParams = new URLSearchParams(window.location.search);
-        const playerId = urlParams.get('player_id');
-        const playerName = urlParams.get('player_name');
-
-        if (!playerId || !playerName) {
-            // Redirect to login if no player info
-            window.location.href = '/login';
-        }
-
-        document.getElementById('player-name').textContent = playerName;
-        document.getElementById('player-id').textContent = playerId;
-        document.getElementById('create-player-id').value = playerId;
-
-        async function loadRooms() {
-            try {
-                const response = await fetch('/api/rooms');
-                const rooms = await response.json();
-                const container = document.getElementById('rooms-container');
-
-                if (rooms.length === 0) {
-                    container.innerHTML = '<p>No rooms available. Create one!</p>';
-                    return;
-                }
-
-                container.innerHTML = rooms.map(room => `
-                    <div class="room-item">
-                        <h4>${room.name}</h4>
-                        <p>Players: ${room.player_count}/${room.max_players}</p>
-                        <p>Room ID: ${room.id}</p>
-                        <form action="/join_room" method="post" style="display: inline;">
-                            <input type="hidden" name="player_id" value="${playerId}">
-                            <input type="hidden" name="room_id" value="${room.id}">
-                            <button type="submit" class="button" ${room.player_count >= room.max_players ? 'disabled' : ''}>
-                                ${room.player_count >= room.max_players ? 'Room Full' : 'Join Room'}
-                            </button>
-                        </form>
-                    </div>
-                `).join('');
-            } catch (error) {
-                console.error('Error loading rooms:', error);
-            }
-        }
-
-        // Load rooms on page load
-        loadRooms();
-
-        // Auto-refresh rooms every 5 seconds
-        setInterval(loadRooms, 5000);
-    </script>
-</body>
-</html>
-"""
-
-login_html = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Player Login</title>
-    <style>
-        body { font-family: Arial, sans-serif; max-width: 400px; margin: 100px auto; padding: 20px; text-align: center; }
-        .login-form { border: 1px solid #ccc; padding: 30px; border-radius: 10px; background: #f9f9f9; }
-        input[type="text"] { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
-        .button { background: #007cba; color: white; padding: 12px 20px; border: none; border-radius: 5px; cursor: pointer; width: 100%; font-size: 16px; }
-        .button:hover { background: #005a8a; }
-    </style>
-</head>
-<body>
-    <div class="login-form">
-        <h1>🎮 Enter Game</h1>
-        <p>Choose your player name to start playing!</p>
-        <form action="/login" method="post">
-            <input type="text" name="player_name" placeholder="Your Player Name" required maxlength="20">
-            <button type="submit" class="button">Enter Lobby</button>
-        </form>
-    </div>
-</body>
-</html>
-"""
-
-room_html = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Game Room</title>
-    <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-        .room-header { background: #007cba; color: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
-        .game-area { display: flex; gap: 20px; }
-        .chat-area { flex: 2; }
-        .players-area { flex: 1; background: #f5f5f5; padding: 15px; border-radius: 5px; }
-        .messages { border: 1px solid #ccc; height: 300px; overflow-y: auto; padding: 10px; margin-bottom: 10px; background: white; }
-        .message { margin: 5px 0; padding: 5px; border-radius: 3px; }
-        .message.own { background: #e3f2fd; }
-        .message.system { background: #fff3cd; font-style: italic; }
-        .message-form { display: flex; gap: 10px; }
-        .message-input { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 3px; }
-        .button { background: #007cba; color: white; padding: 8px 15px; border: none; border-radius: 3px; cursor: pointer; }
-        .button:hover { background: #005a8a; }
-        .leave-button { background: #dc3545; }
-        .leave-button:hover { background: #c82333; }
-        .player-item { padding: 5px; margin: 2px 0; background: white; border-radius: 3px; }
-    </style>
-</head>
-<body>
-    <div class="room-header">
-        <h1 id="room-name">Room</h1>
-        <p>Player: <span id="player-name"></span> | Room ID: <span id="room-id"></span></p>
-        <a href="/lobby?player_id={{PLAYER_ID}}&player_name={{PLAYER_NAME}}" class="button leave-button">Leave Room</a>
-    </div>
-
-    <div class="game-area">
-        <div class="chat-area">
-            <h3>💬 Game Chat</h3>
-            <div id="messages" class="messages"></div>
-            <form class="message-form" onsubmit="sendMessage(event)">
-                <input type="text" id="messageText" class="message-input" placeholder="Type your message..." autocomplete="off" required/>
-                <button type="submit" class="button">Send</button>
-            </form>
-        </div>
-
-        <div class="players-area">
-            <h3>👥 Players in Room</h3>
-            <div id="players-list"></div>
-        </div>
-    </div>
-
-    <script>
-        const urlParams = new URLSearchParams(window.location.search);
-        const playerId = '{{PLAYER_ID}}';
-        const playerName = '{{PLAYER_NAME}}';
-        const roomId = '{{ROOM_ID}}';
-
-        document.getElementById('player-name').textContent = playerName;
-        document.getElementById('room-id').textContent = roomId;
-
-        const ws = new WebSocket(`ws://localhost:8000/ws/${roomId}/${playerId}`);
-
-        ws.onmessage = function(event) {
-            const data = JSON.parse(event.data);
-            handleMessage(data);
-        };
-
-        ws.onopen = function(event) {
-            console.log('Connected to room');
-        };
-
-        ws.onclose = function(event) {
-            console.log('Disconnected from room');
-        };
-
-        function handleMessage(data) {
-            const messagesDiv = document.getElementById('messages');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message';
-
-            if (data.type === 'chat') {
-                if (data.player_id === playerId) {
-                    messageDiv.className += ' own';
-                }
-                messageDiv.innerHTML = `<strong>${data.player_name}:</strong> ${data.message}`;
-            } else if (data.type === 'system') {
-                messageDiv.className += ' system';
-                messageDiv.textContent = data.message;
-            } else if (data.type === 'room_info') {
-                document.getElementById('room-name').textContent = data.room_name;
-                updatePlayersList(data.players);
-                return;
-            } else if (data.type === 'players_update') {
-                updatePlayersList(data.players);
-                return;
-            }
-
-            messagesDiv.appendChild(messageDiv);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-        }
-
-        function updatePlayersList(players) {
-            const playersDiv = document.getElementById('players-list');
-            playersDiv.innerHTML = players.map(player => 
-                `<div class="player-item">${player.name} ${player.id === playerId ? '(You)' : ''}</div>`
-            ).join('');
-        }
-
-        function sendMessage(event) {
-            event.preventDefault();
-            const input = document.getElementById('messageText');
-            if (input.value.trim()) {
-                ws.send(JSON.stringify({
-                    type: 'chat',
-                    message: input.value
-                }));
-                input.value = '';
-            }
-        }
-
-        // Auto-focus message input
-        document.getElementById('messageText').focus();
-    </script>
-</body>
-</html>
-"""
+# API Routes
+@app.post("/api/login", response_model=PlayerResponse)
+async def login(request: PlayerCreateRequest):
+    player_id = manager.create_player(request.player_name)
+    return PlayerResponse(player_id=player_id, player_name=request.player_name)
 
 
-# Routes
-@app.get("/")
-async def root():
-    return RedirectResponse(url="/login")
-
-
-@app.get("/login")
-async def login_page():
-    return HTMLResponse(login_html)
-
-
-@app.post("/login")
-async def login(player_name: str = Form(...)):
-    player_id = manager.create_player(player_name)
-    return RedirectResponse(url=f"/lobby?player_id={player_id}&player_name={player_name}", status_code=303)
-
-
-@app.get("/lobby")
-async def lobby(player_id: str, player_name: str):
-    return HTMLResponse(lobby_html)
-
-
-@app.post("/create_room")
-async def create_room(room_name: str = Form(...), player_id: str = Form(...)):
-    room_id = manager.create_room(room_name)
-    manager.join_room(player_id, room_id)
+@app.get("/api/player/{player_id}")
+async def get_player(player_id: str):
     player = manager.get_player(player_id)
-    return RedirectResponse(url=f"/room/{room_id}?player_id={player_id}&player_name={player.name}", status_code=303)
+    if not player:
+        raise HTTPException(status_code=404, detail="Player not found")
+    return {
+        "player_id": player.id,
+        "player_name": player.name,
+        "current_room": player.current_room
+    }
 
 
-@app.post("/join_room")
-async def join_room(room_id: str = Form(...), player_id: str = Form(...)):
-    if manager.join_room(player_id, room_id):
-        player = manager.get_player(player_id)
-        return RedirectResponse(url=f"/room/{room_id}?player_id={player_id}&player_name={player.name}", status_code=303)
+@app.post("/api/rooms/create")
+async def create_room(request: RoomCreateRequest):
+    print(request)
+    room_id = manager.create_room(request.room_name, request.max_players, request.number_of_actions)
+    if manager.join_room(request.player_id, room_id):
+        return {"room_id": room_id, "success": True}
     else:
-        return RedirectResponse(url=f"/lobby?player_id={player_id}&error=room_full", status_code=303)
+        raise HTTPException(status_code=400, detail="Failed to create room")
 
 
-@app.get("/room/{room_id}")
-async def room_page(room_id: str, player_id: str, player_name: str):
-    room = manager.get_room(room_id)
-    if not room:
-        return RedirectResponse(url=f"/lobby?player_id={player_id}&error=room_not_found")
+@app.post("/api/rooms/join")
+async def join_room(request: RoomJoinRequest):
+    if manager.join_room(request.player_id, request.room_id):
+        room = manager.get_room(request.room_id)
+        return {
+            "success": True,
+            "room": {
+                "id": room.id,
+                "name": room.name,
+                "number_of_actions": room.number_of_actions,
+                "player_count": len(room.players),
+                "max_players": room.max_players
+            }
+        }
+    else:
+        raise HTTPException(status_code=400, detail="Failed to join room")
 
-    html_content = room_html.replace('{{PLAYER_ID}}', player_id).replace('{{PLAYER_NAME}}', player_name).replace(
-        '{{ROOM_ID}}', room_id)
-    return HTMLResponse(html_content)
+
+@app.post("/api/rooms/leave")
+async def leave_room(player_id: str):
+    manager.leave_room(player_id)
+    return {"success": True}
 
 
-@app.get("/api/rooms")
+@app.get("/api/rooms", response_model=List[RoomResponse])
 async def get_rooms():
     rooms_data = []
     for room in manager.rooms.values():
-        rooms_data.append({
-            "id": room.id,
-            "name": room.name,
-            "player_count": len(room.players),
-            "max_players": room.max_players
-        })
+        rooms_data.append(RoomResponse(
+            id=room.id,
+            name=room.name,
+            player_count=len(room.players),
+            max_players=room.max_players,
+            number_of_actions=room.number_of_actions
+        ))
     return rooms_data
+
+
+@app.get("/api/rooms/{room_id}")
+async def get_room_details(room_id: str):
+    room = manager.get_room(room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    return {
+        "id": room.id,
+        "name": room.name,
+        "player_count": len(room.players),
+        "max_players": room.max_players,
+        "players": [{"id": p.id, "name": p.name} for p in room.players.values()],
+        "messages": room.messages[-50:]  # Last 50 messages
+    }
 
 
 @app.websocket("/ws/{room_id}/{player_id}")
@@ -411,6 +228,12 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str)
     room = manager.get_room(room_id)
 
     if not player or not room or player_id not in room.players:
+        print("❌ Closing WebSocket: invalid state")
+        print("player:", player)
+        print("room:", room)
+        if room:
+            print("room.players:", list(room.players.keys()))
+        print("player_id:", player_id)
         await websocket.close()
         return
 
@@ -420,8 +243,16 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str)
     await websocket.send_text(json.dumps({
         "type": "room_info",
         "room_name": room.name,
+        "number_of_actions": room.number_of_actions,
         "players": [{"id": p.id, "name": p.name} for p in room.players.values()]
     }))
+
+    # Send recent messages
+    if room.messages:
+        await websocket.send_text(json.dumps({
+            "type": "message_history",
+            "messages": room.messages[-20:]  # Last 20 messages
+        }))
 
     # Notify others that player joined
     await manager.broadcast_to_room(room_id, {
@@ -441,20 +272,22 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str)
             message_data = json.loads(data)
 
             if message_data["type"] == "chat":
-                # Broadcast chat message to all players in room
-                await manager.broadcast_to_room(room_id, {
-                    "type": "chat",
-                    "player_id": player_id,
-                    "player_name": player.name,
-                    "message": message_data["message"]
-                })
-
-                # Store message in room history
-                room.messages.append({
+                # Create message object
+                message_obj = {
+                    "id": str(uuid.uuid4())[:8],
                     "player_id": player_id,
                     "player_name": player.name,
                     "message": message_data["message"],
                     "timestamp": str(uuid.uuid4())  # Simple timestamp substitute
+                }
+
+                # Store message in room history
+                room.messages.append(message_obj)
+
+                # Broadcast chat message to all players in room
+                await manager.broadcast_to_room(room_id, {
+                    "type": "chat",
+                    **message_obj
                 })
 
     except WebSocketDisconnect:
