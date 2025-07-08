@@ -31,6 +31,7 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    "daphne",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -131,4 +132,5 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
 # AUTH_USER_MODEL = "users.User"
+ASGI_APPLICATION = "ultimate_rps.asgi.application"
 
