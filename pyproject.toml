@@ -9,4 +9,9 @@ dependencies = [
     "django>=5.2.4",
     "djangorestframework>=3.16.0",
     "channels[daphne]>=4.2.2",
+    "python-dotenv>=1.1.1",
+    "psycopg2-binary>=2.9.10",
+    "django-rest-knox>=5.0.2",
+    "rock-paper-scissors-py>=0.1.1",
+    "pytest>=8.4.1",
 ]
