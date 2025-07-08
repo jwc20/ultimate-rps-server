@@ -40,15 +40,16 @@ INSTALLED_APPS = [
 
     # third party 
     "rest_framework",
-    "corsheader"
+    "corsheaders",
 
     # custom apps 
-    "users",
+    # "users",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -129,5 +130,5 @@ STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
-AUTH_USER_MODEL = "users.User"
+# AUTH_USER_MODEL = "users.User"
 
