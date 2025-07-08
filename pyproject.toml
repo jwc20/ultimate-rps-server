@@ -1,0 +1,11 @@
+[project]
+name = "ultimate-rps-server"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "django-cors-headers>=4.7.0",
+    "django>=5.2.4",
+    "djangorestframework>=3.16.0",
+]
