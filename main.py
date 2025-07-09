@@ -1,3 +1,5 @@
+from collections import namedtuple
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -8,7 +10,6 @@ from rps import Game, FixedActionPlayer, RandomActionPlayer
 
 app = FastAPI()
 
-# Enable CORS for React frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],  # React dev server
@@ -18,7 +19,10 @@ app.add_middleware(
 )
 
 
-# Request/Response Models
+# -----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+
 class PlayerCreateRequest(BaseModel):
     player_name: str
 
@@ -48,7 +52,11 @@ class RoomResponse(BaseModel):
     number_of_actions: int
 
 
-# Data Models
+# -----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+
+
 class Player:
     def __init__(self, player_id: str, name: str):
         self.id = player_id
@@ -57,14 +65,23 @@ class Player:
         self.websocket: Optional[WebSocket] = None
 
 
+PlayerAction = namedtuple("PlayerAction", ["player_id", "message_id", "action"])
+RoomPlayer = namedtuple("RoomPlayer", ["player", "locked"])
+
+
 class Room:
-    def __init__(self, room_id: str, name: str, max_players: int, number_of_actions: int):
+    def __init__(
+            self, room_id: str, name: str, max_players: int, number_of_actions: int
+    ):
         self.id = room_id
         self.name = name
         self.number_of_actions = number_of_actions
         self.max_players = max_players
-        self.players: Dict[str, Player] = {}
+        self.players: Dict[str, RoomPlayer] = {}
         self.messages: List[dict] = []
+        self.round_number = 0
+        self.game_rounds: Dict[int, List[PlayerAction]] = {}
+        self.game_round_results: Dict[int, List[str]] = {}
 
 
 class GameManager:
@@ -100,36 +117,42 @@ class GameManager:
         if len(room.players) >= int(room.max_players):
             return False
 
-        # Leave current room if in one
         if player.current_room:
             self.leave_room(player_id)
 
-        # Join new room
-        room.players[player_id] = player
+        # room.players[player_id] = player
+        room.players[player_id] = RoomPlayer(player=player, locked=False)
         player.current_room = room_id
         return True
 
     def leave_room(self, player_id: str):
-        player = self.get_player(player_id)
+        player = self.players.get(player_id)
         if not player or not player.current_room:
             return
 
-        room = self.get_room(player.current_room)
+        room = self.rooms.get(player.current_room)
         if room and player_id in room.players:
             del room.players[player_id]
 
         player.current_room = None
 
-    async def broadcast_to_room(self, room_id: str, message: dict, exclude_player: str = None):
+    async def broadcast_to_room(
+            self, room_id: str, message: dict, exclude_player: str = None
+    ):
         room = self.get_room(room_id)
         if not room:
             return
 
         message_json = json.dumps(message)
+
+        # if message_json["type"] is not None and message_json["type"] == "round_result":
+        #     await player.player.websocket.send_text(message_json)
+
+
         for player_id, player in room.players.items():
-            if player_id != exclude_player and player.websocket:
+            if player_id != exclude_player and player.player.websocket:
                 try:
-                    await player.websocket.send_text(message_json)
+                    await player.player.websocket.send_text(message_json)
                 except:
                     pass  # Handle disconnected websockets
 
@@ -137,7 +160,11 @@ class GameManager:
 manager = GameManager()
 
 
-# API Routes
+# -----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+
+
 @app.post("/api/login", response_model=PlayerResponse)
 async def login(request: PlayerCreateRequest):
     player_id = manager.create_player(request.player_name)
@@ -152,14 +179,21 @@ async def get_player(player_id: str):
     return {
         "player_id": player.id,
         "player_name": player.name,
-        "current_room": player.current_room
+        "current_room": player.current_room,
     }
 
 
 @app.post("/api/rooms/create")
 async def create_room(request: RoomCreateRequest):
-    print(request)
-    room_id = manager.create_room(request.room_name, request.max_players, request.number_of_actions)
+    if request.number_of_actions is None or request.number_of_actions == "":
+        request.number_of_actions = str(3)
+    if request.max_players is None or request.max_players == "":
+        request.max_players = str(10)
+
+    room_id = manager.create_room(
+        request.room_name, request.max_players, request.number_of_actions
+    )
+
     if manager.join_room(request.player_id, room_id):
         return {"room_id": room_id, "success": True}
     else:
@@ -177,8 +211,8 @@ async def join_room(request: RoomJoinRequest):
                 "name": room.name,
                 "number_of_actions": room.number_of_actions,
                 "player_count": len(room.players),
-                "max_players": room.max_players
-            }
+                "max_players": room.max_players,
+            },
         }
     else:
         raise HTTPException(status_code=400, detail="Failed to join room")
@@ -194,13 +228,15 @@ async def leave_room(player_id: str):
 async def get_rooms():
     rooms_data = []
     for room in manager.rooms.values():
-        rooms_data.append(RoomResponse(
-            id=room.id,
-            name=room.name,
-            player_count=len(room.players),
-            max_players=room.max_players,
-            number_of_actions=room.number_of_actions
-        ))
+        rooms_data.append(
+            RoomResponse(
+                id=room.id,
+                name=room.name,
+                player_count=len(room.players),
+                max_players=room.max_players,
+                number_of_actions=room.number_of_actions,
+            )
+        )
     return rooms_data
 
 
@@ -216,8 +252,13 @@ async def get_room_details(room_id: str):
         "player_count": len(room.players),
         "max_players": room.max_players,
         "players": [{"id": p.id, "name": p.name} for p in room.players.values()],
-        "messages": room.messages[-50:]  # Last 50 messages
+        "messages": room.messages[-50:],
     }
+
+
+# -----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
 
 
 @app.websocket("/ws/{room_id}/{player_id}")
@@ -227,10 +268,15 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str)
     player = manager.get_player(player_id)
     room = manager.get_room(room_id)
 
+    if player and room and player_id in room.players:
+        # Update player's websocket reference
+        room_player = room.players[player_id]
+        room.players[player_id] = RoomPlayer(
+            player=room_player.player, locked=room_player.locked
+        )
+        player.websocket = websocket
+
     if not player or not room or player_id not in room.players:
-        print("❌ Closing WebSocket: invalid state")
-        print("player:", player)
-        print("room:", room)
         if room:
             print("room.players:", list(room.players.keys()))
         print("player_id:", player_id)
@@ -239,32 +285,37 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str)
 
     player.websocket = websocket
 
-    # Send room info and current players
-    await websocket.send_text(json.dumps({
-        "type": "room_info",
-        "room_name": room.name,
-        "number_of_actions": room.number_of_actions,
-        "players": [{"id": p.id, "name": p.name} for p in room.players.values()]
-    }))
+    await websocket.send_text(
+        json.dumps(
+            {
+                "type": "room_info",
+                "room_name": room.name,
+                "number_of_actions": room.number_of_actions,
+                "players": [{"id": p.player.id, "name": p.player.name, "locked": p.locked}
+                            for p in room.players.values()],
+            }
+        )
+    )
 
-    # Send recent messages
     if room.messages:
-        await websocket.send_text(json.dumps({
-            "type": "message_history",
-            "messages": room.messages[-20:]  # Last 20 messages
-        }))
+        await websocket.send_text(
+            json.dumps({"type": "message_history", "messages": room.messages[-20:]})
+        )
 
-    # Notify others that player joined
-    await manager.broadcast_to_room(room_id, {
-        "type": "system",
-        "message": f"{player.name} joined the room"
-    }, exclude_player=player_id)
+    await manager.broadcast_to_room(
+        room_id,
+        {"type": "system", "message": f"{player.name} joined the room"},
+        exclude_player=player_id,
+    )
 
-    # Send updated players list to all
-    await manager.broadcast_to_room(room_id, {
-        "type": "players_update",
-        "players": [{"id": p.id, "name": p.name} for p in room.players.values()]
-    })
+    await manager.broadcast_to_room(
+        room_id,
+        {
+            "type": "players_update",
+            "players": [{"id": p.player.id, "name": p.player.name, "locked": p.locked}
+                        for p in room.players.values()]
+        },
+    )
 
     try:
         while True:
@@ -272,46 +323,118 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str)
             message_data = json.loads(data)
 
             if message_data["type"] == "chat":
-                # Create message object
                 message_obj = {
                     "id": str(uuid.uuid4())[:8],
                     "player_id": player_id,
                     "player_name": player.name,
                     "message": message_data["message"],
-                    "timestamp": str(uuid.uuid4())  # Simple timestamp substitute
+                    "timestamp": str(uuid.uuid4()),
                 }
 
-                # Store message in room history
                 room.messages.append(message_obj)
 
-                # Broadcast chat message to all players in room
-                await manager.broadcast_to_room(room_id, {
-                    "type": "chat",
-                    **message_obj
-                })
+                await manager.broadcast_to_room(
+                    room_id, {"type": "chat", **message_obj}
+                )
+                
+
+            if message_data["type"] == "play":
+                player_action = int(message_data["message"])
+                message_id = str(uuid.uuid4())[:8]
+                is_ready_message = "is ready"
+                message_obj = {
+                    "id": message_id,
+                    "player_id": player_id,
+                    "player_name": player.name,
+                    "message": is_ready_message,
+                    "timestamp": str(uuid.uuid4()),
+                }
+                
+                await manager.broadcast_to_room(
+                    room_id, {"type": "chat", **message_obj}
+                )
+
+                room.messages.append(message_obj)
+                player_action_obj = PlayerAction(player_id, message_id, player_action)
+
+                if room.round_number not in room.game_rounds:
+                    room.game_rounds[room.round_number] = []
+
+                room.game_rounds[room.round_number].append(player_action_obj)
+
+                # Update player's locked status
+                if player_id in room.players:
+                    room.players[player_id] = RoomPlayer(player=room.players[player_id].player, locked=True)
+
+                if len(room.game_rounds[room.round_number]) == room.max_players:
+                    # play the round
+                    all_players = []
+                    for player_action in room.game_rounds[room.round_number]:
+                        player = FixedActionPlayer(player_action.player_id, player_action.action)
+                        all_players.append(player)
+
+                    game = Game(all_players, room.number_of_actions)
+                    result = game.play_round()
+                    print("result ", [p.name for p in result])
+                    
+                    result_list = [p.name for p in result]
+
+                    # Reset locked status for all players
+                    for p_id in room.players:
+                        room.players[p_id] = RoomPlayer(player=room.players[p_id].player, locked=False)
+
+
+
+                    
+                    game_message_obj = {
+                        "id": str(uuid.uuid4())[:8],
+                        "player_id": str(uuid.uuid4())[:8],
+                        "player_name": "Game",
+                        "message": f"Round {room.round_number} result: {result_list}",
+                        "timestamp": str(uuid.uuid4()),
+                    }
+                    
+
+                    await manager.broadcast_to_room(
+                        room_id, {"type": "chat", **game_message_obj}
+                    )
+
+                    room.game_round_results[room.round_number] = result_list
+
+                    # Reset game_rounds for the next round
+                    room.round_number += 1
+                    room.game_rounds[room.round_number] = []
+
 
     except WebSocketDisconnect:
-        # Clean up player connection
         if player:
             player.websocket = None
 
-            # Notify others that player left
-            await manager.broadcast_to_room(room_id, {
-                "type": "system",
-                "message": f"{player.name} left the room"
-            }, exclude_player=player_id)
+            await manager.broadcast_to_room(
+                room_id,
+                {"type": "system", "message": f"{player.name} left the room"},
+                exclude_player=player_id,
+            )
 
-            # Remove player from room
             manager.leave_room(player_id)
 
-            # Send updated players list to remaining players
             room = manager.get_room(room_id)
             if room:
-                await manager.broadcast_to_room(room_id, {
-                    "type": "players_update",
-                    "players": [{"id": p.id, "name": p.name} for p in room.players.values()]
-                })
+                await manager.broadcast_to_room(
+                    room_id,
+                    {
+                        "type": "players_update",
+                        "players": [
+                            {"id": p.player.id, "name": p.player.name, "locked": p.locked}
+                            for p in room.players.values()
+                        ],
+                    },
+                )
 
+
+# -----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
     import uvicorn
