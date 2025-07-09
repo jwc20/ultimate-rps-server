@@ -7,5 +7,6 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi[standard]>=0.116.0",
     "rock-paper-scissors-py>=0.1.1",
+    "sqlmodel>=0.0.24",
     "websockets>=15.0.1",
 ]
