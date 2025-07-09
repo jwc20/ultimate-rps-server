@@ -145,10 +145,6 @@ class GameManager:
 
         message_json = json.dumps(message)
 
-        # if message_json["type"] is not None and message_json["type"] == "round_result":
-        #     await player.player.websocket.send_text(message_json)
-
-
         for player_id, player in room.players.items():
             if player_id != exclude_player and player.player.websocket:
                 try:
@@ -336,7 +332,6 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str)
                 await manager.broadcast_to_room(
                     room_id, {"type": "chat", **message_obj}
                 )
-                
 
             if message_data["type"] == "play":
                 player_action = int(message_data["message"])
@@ -349,7 +344,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str)
                     "message": is_ready_message,
                     "timestamp": str(uuid.uuid4()),
                 }
-                
+
                 await manager.broadcast_to_room(
                     room_id, {"type": "chat", **message_obj}
                 )
@@ -376,16 +371,13 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str)
                     game = Game(all_players, room.number_of_actions)
                     result = game.play_round()
                     print("result ", [p.name for p in result])
-                    
+
                     result_list = [p.name for p in result]
 
                     # Reset locked status for all players
                     for p_id in room.players:
                         room.players[p_id] = RoomPlayer(player=room.players[p_id].player, locked=False)
 
-
-
-                    
                     game_message_obj = {
                         "id": str(uuid.uuid4())[:8],
                         "player_id": str(uuid.uuid4())[:8],
@@ -393,7 +385,6 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str)
                         "message": f"Round {room.round_number} result: {result_list}",
                         "timestamp": str(uuid.uuid4()),
                     }
-                    
 
                     await manager.broadcast_to_room(
                         room_id, {"type": "chat", **game_message_obj}
