@@ -7,6 +7,8 @@ router = APIRouter()
 
 @router.post("/rooms/create")
 async def create_room(request: RoomCreateRequest, manager: GameManagerDep):
+    if request.room_name is None or request.room_name == "":
+        request.room_name = "Room " + str(len(manager.rooms) + 1)
     if request.number_of_actions is None or request.number_of_actions == "":
         request.number_of_actions = str(3)
     if request.max_players is None or request.max_players == "":
