@@ -140,6 +140,50 @@ class Message(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+# Add to imports
+from collections import defaultdict
+from rps import Game, FixedActionPlayer
+
+
+# Add after broadcast initialization
+class GameState:
+    def __init__(self, room_id: int, max_players: int, number_of_actions: int):
+        self.room_id = room_id
+        self.max_players = max_players
+        self.number_of_actions = number_of_actions
+        self.players = {}  # {username: websocket}
+        self.current_round_actions = {}  # {username: action}
+        self.eliminated_players = set()
+        self.round_number = 1
+        self.game_started = False
+
+    def add_player(self, username: str):
+        if username not in self.eliminated_players:
+            self.players[username] = True
+
+    def remove_player(self, username: str):
+        self.players.pop(username, None)
+        self.current_round_actions.pop(username, None)
+
+    def submit_action(self, username: str, action: int):
+        if username in self.players and username not in self.eliminated_players:
+            self.current_round_actions[username] = action
+
+    def all_players_ready(self):
+        active_players = [p for p in self.players if p not in self.eliminated_players]
+        return len(self.current_round_actions) == len(active_players) and len(active_players) >= 2
+
+    def get_active_players(self):
+        return [p for p in self.players if p not in self.eliminated_players]
+
+    def reset_round(self):
+        self.current_round_actions = {}
+        self.round_number += 1
+
+
+# Global game states
+game_states = {}  # {room_id: GameState}
+
 # Database setup
 sqlite_file_name = "database.db"
 sqlite_url = f"sqlite:///{sqlite_file_name}"
@@ -191,7 +235,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
 
 
 async def get_current_user(
-    token: Annotated[str, Depends(oauth2_scheme)], session: SessionDep
+        token: Annotated[str, Depends(oauth2_scheme)], session: SessionDep
 ):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -213,7 +257,7 @@ async def get_current_user(
 
 
 async def get_current_active_user(
-    current_user: Annotated[User, Depends(get_current_user)],
+        current_user: Annotated[User, Depends(get_current_user)],
 ):
     if current_user.disabled:
         raise HTTPException(status_code=400, detail="Inactive user")
@@ -250,7 +294,7 @@ def register(user: UserCreate, session: SessionDep):
 
 @app.post("/token")
 async def login_for_access_token(
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()], session: SessionDep
+        form_data: Annotated[OAuth2PasswordRequestForm, Depends()], session: SessionDep
 ) -> Token:
     user = authenticate_user(session, form_data.username, form_data.password)
     if not user:
@@ -293,10 +337,10 @@ def create_user(user: UserCreate, session: SessionDep, current_user: CurrentUser
 
 @app.get("/users/", response_model=list[UserPublic])
 def read_users(
-    session: SessionDep,
-    current_user: CurrentUser,
-    offset: int = 0,
-    limit: Annotated[int, Query(le=100)] = 100,
+        session: SessionDep,
+        current_user: CurrentUser,
+        offset: int = 0,
+        limit: Annotated[int, Query(le=100)] = 100,
 ):
     users = session.exec(select(User).offset(offset).limit(limit)).all()
     return users
@@ -312,10 +356,10 @@ def read_user(user_id: int, session: SessionDep, current_user: CurrentUser):
 
 @app.patch("/users/{user_id}", response_model=UserPublic)
 def update_user(
-    user_id: int,
-    user_update: UserUpdate,
-    session: SessionDep,
-    current_user: CurrentUser,
+        user_id: int,
+        user_update: UserUpdate,
+        session: SessionDep,
+        current_user: CurrentUser,
 ):
     user_db = session.get(User, user_id)
     if not user_db:
@@ -370,39 +414,157 @@ async def get_rooms(session: SessionDep):
     rooms = session.exec(select(Room)).all()
     return rooms
 
+
 @app.get("/room/{room_id}")
 async def get_rooms(room_id: int, session: SessionDep):
     room = session.exec(select(Room).where(Room.id == room_id)).first()
     return room
 
 
-
 async def chatroom_ws_receiver(
-    websocket: WebSocket, room_id: str, user_id: str, session: Session
+        websocket: WebSocket, room_id: str, user_id: str, session: Session
 ):
-    game = Game()
-    # enc = EncLibrary()
+    # Initialize or get game state
+    if room_id not in game_states:
+        room = session.exec(select(Room).where(Room.id == int(room_id))).first()
+        if room:
+            game_states[room_id] = GameState(
+                int(room_id),
+                room.max_players,
+                room.number_of_actions
+            )
+
+    game_state = game_states.get(room_id)
+    if game_state:
+        game_state.add_player(user_id)
+        # Notify others that a player joined
+        await broadcast.publish(
+            channel=f"chatroom_{room_id}",
+            message=json.dumps({
+                "type": "player_joined",
+                "username": user_id,
+                "players": game_state.get_active_players()
+            })
+        )
+
     async for message in websocket.iter_text():
-        # print(aes_encrypted)
         try:
-            # key = "buttfart"
-            # aes_decrypted = enc.two_way_dec_aes(key, aes_encrypted)
-            # msg_data = json.loads(aes_decrypted)
             msg_data = json.loads(message)
 
-            db_message = Message(
-                room_id=int(room_id),
-                username=msg_data.get("username", user_id),
-                message=msg_data.get("message", ""),
-                type=msg_data.get("type", "message"),
-            )
-            session.add(db_message)
-            session.commit()
+            # Handle play actions
+            if msg_data.get("type") == "play" and game_state:
+                action = int(msg_data.get("message", 0))
+                game_state.submit_action(user_id, action)
 
-        except json.JSONDecodeError:
-            pass
+                # Broadcast that player is ready
+                await broadcast.publish(
+                    channel=f"chatroom_{room_id}",
+                    message=json.dumps({
+                        "type": "player_ready",
+                        "username": user_id,
+                        "ready_count": len(game_state.current_round_actions),
+                        "total_active": len(game_state.get_active_players())
+                    })
+                )
 
-        await broadcast.publish(channel=f"chatroom_{room_id}", message=message)
+                # Check if all players have submitted actions
+                if game_state.all_players_ready():
+                    # Run game logic
+                    players = []
+                    actions = []
+                    for username, action in game_state.current_round_actions.items():
+                        players.append(FixedActionPlayer(username, action))
+                        actions.append(action)
+
+                    # Create and run game
+                    game = Game(players, game_state.number_of_actions)
+                    eliminated_indices = game.eliminate(actions)
+
+                    # Get eliminated usernames
+                    eliminated_usernames = []
+                    for idx in eliminated_indices:
+                        username = players[idx].name
+                        eliminated_usernames.append(username)
+                        game_state.eliminated_players.add(username)
+
+                    # Get remaining players
+                    remaining_players = game_state.get_active_players()
+
+                    # Broadcast round results
+                    await broadcast.publish(
+                        channel=f"chatroom_{room_id}",
+                        message=json.dumps({
+                            "type": "round_complete",
+                            "round": game_state.round_number,
+                            "actions": game_state.current_round_actions,
+                            "eliminated": eliminated_usernames,
+                            "remaining": remaining_players,
+                            "game_over": len(remaining_players) == 1
+                        })
+                    )
+
+                    # Reset for next round or end game
+                    if len(remaining_players) > 1:
+                        game_state.reset_round()
+                    else:
+                        # Game over
+                        winner = remaining_players[0] if remaining_players else None
+                        await broadcast.publish(
+                            channel=f"chatroom_{room_id}",
+                            message=json.dumps({
+                                "type": "game_over",
+                                "winner": winner
+                            })
+                        )
+                        # Reset game state
+                        game_states[room_id] = GameState(
+                            int(room_id),
+                            game_state.max_players,
+                            game_state.number_of_actions
+                        )
+            else:
+                # Regular message
+                db_message = Message(
+                    room_id=int(room_id),
+                    username=msg_data.get("username", user_id),
+                    message=msg_data.get("message", ""),
+                    type=msg_data.get("type", "message"),
+                )
+                session.add(db_message)
+                session.commit()
+
+                await broadcast.publish(channel=f"chatroom_{room_id}", message=message)
+
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Error processing message: {e}")
+
+
+# async def chatroom_ws_receiver(
+#     websocket: WebSocket, room_id: str, user_id: str, session: Session
+# ):
+#     game = Game()
+#     # enc = EncLibrary()
+#     async for message in websocket.iter_text():
+#         # print(aes_encrypted)
+#         try:
+#             # key = "buttfart"
+#             # aes_decrypted = enc.two_way_dec_aes(key, aes_encrypted)
+#             # msg_data = json.loads(aes_decrypted)
+#             msg_data = json.loads(message)
+# 
+#             db_message = Message(
+#                 room_id=int(room_id),
+#                 username=msg_data.get("username", user_id),
+#                 message=msg_data.get("message", ""),
+#                 type=msg_data.get("type", "message"),
+#             )
+#             session.add(db_message)
+#             session.commit()
+# 
+#         except json.JSONDecodeError:
+#             pass
+# 
+#         await broadcast.publish(channel=f"chatroom_{room_id}", message=message)
 
 
 async def chatroom_ws_sender(websocket: WebSocket, room_id: str, user_id: str):
@@ -416,10 +578,10 @@ async def chatroom_ws_sender(websocket: WebSocket, room_id: str, user_id: str):
 
 @app.websocket("/ws/{room_id}")
 async def websocket_endpoint(
-    websocket: WebSocket,
-    room_id: str,
-    session: Optional[Session] = Depends(get_session),
-    token: Optional[str] = Query(None),
+        websocket: WebSocket,
+        room_id: str,
+        session: Optional[Session] = Depends(get_session),
+        token: Optional[str] = Query(None),
 ):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
