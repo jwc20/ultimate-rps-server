@@ -1,29 +1,34 @@
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
-from typing import Annotated
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+import json
+from typing import Annotated, Optional
+
+import anyio
 import bcrypt
 from broadcaster import Broadcast
-import anyio
-
 import jwt
-from fastapi import FastAPI, Depends, HTTPException, Query, status, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Query,
+    status,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jwt.exceptions import InvalidTokenError
 from passlib.context import CryptContext
 from pydantic import BaseModel
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 from starlette.middleware.cors import CORSMiddleware
-from websocket_manager import WebSocketManager
-import json
-from typing import Optional
 
 SECRET_KEY = "d1476829cf5d3ea5326220b34a3d6ab78031d28f6b75d2575d9177f4e21a7fa4"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 broadcast = Broadcast("redis://localhost:6379")
-socket_manager = WebSocketManager()
 
 
 # https://github.com/pyca/bcrypt/issues/684#issuecomment-2430047176
@@ -122,12 +127,14 @@ class RoomCreate(RoomBase):
     max_players: int | None = 2
     number_of_actions: int | None = 3
 
+
 class Message(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     room_id: int = Field(foreign_key="room.id", index=True)
     username: str
     message: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 
 # Database setup
 sqlite_file_name = "database.db"
@@ -180,7 +187,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
 
 
 async def get_current_user(
-        token: Annotated[str, Depends(oauth2_scheme)], session: SessionDep
+    token: Annotated[str, Depends(oauth2_scheme)], session: SessionDep
 ):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -202,7 +209,7 @@ async def get_current_user(
 
 
 async def get_current_active_user(
-        current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ):
     if current_user.disabled:
         raise HTTPException(status_code=400, detail="Inactive user")
@@ -239,7 +246,7 @@ def register(user: UserCreate, session: SessionDep):
 
 @app.post("/token")
 async def login_for_access_token(
-        form_data: Annotated[OAuth2PasswordRequestForm, Depends()], session: SessionDep
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()], session: SessionDep
 ) -> Token:
     user = authenticate_user(session, form_data.username, form_data.password)
     if not user:
@@ -282,10 +289,10 @@ def create_user(user: UserCreate, session: SessionDep, current_user: CurrentUser
 
 @app.get("/users/", response_model=list[UserPublic])
 def read_users(
-        session: SessionDep,
-        current_user: CurrentUser,
-        offset: int = 0,
-        limit: Annotated[int, Query(le=100)] = 100,
+    session: SessionDep,
+    current_user: CurrentUser,
+    offset: int = 0,
+    limit: Annotated[int, Query(le=100)] = 100,
 ):
     users = session.exec(select(User).offset(offset).limit(limit)).all()
     return users
@@ -301,10 +308,10 @@ def read_user(user_id: int, session: SessionDep, current_user: CurrentUser):
 
 @app.patch("/users/{user_id}", response_model=UserPublic)
 def update_user(
-        user_id: int,
-        user_update: UserUpdate,
-        session: SessionDep,
-        current_user: CurrentUser,
+    user_id: int,
+    user_update: UserUpdate,
+    session: SessionDep,
+    current_user: CurrentUser,
 ):
     user_db = session.get(User, user_id)
     if not user_db:
@@ -360,15 +367,16 @@ async def get_rooms(session: SessionDep):
     return rooms
 
 
-
-async def chatroom_ws_receiver(websocket: WebSocket, room_id: str, user_id: str, session: Session):
+async def chatroom_ws_receiver(
+    websocket: WebSocket, room_id: str, user_id: str, session: Session
+):
     async for message in websocket.iter_text():
         try:
             msg_data = json.loads(message)
             db_message = Message(
                 room_id=int(room_id),
                 username=msg_data.get("username", user_id),
-                message=msg_data.get("message", "")
+                message=msg_data.get("message", ""),
             )
             session.add(db_message)
             session.commit()
@@ -387,10 +395,10 @@ async def chatroom_ws_sender(websocket: WebSocket, room_id: str, user_id: str):
 
 @app.websocket("/ws/{room_id}")
 async def websocket_endpoint(
-        websocket: WebSocket,
-        room_id: str,
-        session: Optional[Session] = Depends(get_session),
-        token: Optional[str] = Query(None)
+    websocket: WebSocket,
+    room_id: str,
+    session: Optional[Session] = Depends(get_session),
+    token: Optional[str] = Query(None),
 ):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -413,17 +421,25 @@ async def websocket_endpoint(
             history_msg = {
                 "username": msg.username,
                 "message": msg.message,
-                "timestamp": msg.created_at.isoformat()
+                "timestamp": msg.created_at.isoformat(),
             }
             await websocket.send_text(json.dumps(history_msg))
-        
+
         async with anyio.create_task_group() as task_group:
+
             async def run_chatroom_ws_receiver() -> None:
-                await chatroom_ws_receiver(websocket=websocket, room_id=room_id, user_id=user_id, session=session)
+                await chatroom_ws_receiver(
+                    websocket=websocket,
+                    room_id=room_id,
+                    user_id=user_id,
+                    session=session,
+                )
                 task_group.cancel_scope.cancel()
 
             task_group.start_soon(run_chatroom_ws_receiver)
-            await chatroom_ws_sender(websocket=websocket, room_id=room_id, user_id=user_id)
+            await chatroom_ws_sender(
+                websocket=websocket, room_id=room_id, user_id=user_id
+            )
 
     except jwt.InvalidTokenError:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
