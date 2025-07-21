@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from dataclasses import dataclass
+from websocket import WebsocketManager
 import bcrypt
 
 import jwt
@@ -62,6 +63,8 @@ app = FastAPI(lifespan=lifespan)
 app.add_middleware(add_cors_middleware)
 
 
+manager = WebsocketManager()
+
 # Authentication Models
 class Token(BaseModel):
     access_token: str
@@ -97,6 +100,19 @@ class UserPublic(BaseModel):
 class UserUpdate(BaseModel):
     disabled: bool | None = None
     password: str | None = None
+
+class RoomBase(SQLModel):
+    room_name: str = Field(index=True)
+    max_players: int = Field(default=None)
+    number_of_actions: int = Field(default=None)
+
+class Room(RoomBase, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+
+class RoomCreate(RoomBase):
+    room_name: str 
+    max_players: int | None = 2 
+    number_of_actions: int | None = 3
 
 
 # Database setup
@@ -208,6 +224,25 @@ def register(user: UserCreate, session: SessionDep):
     session.refresh(db_user)
     return db_user
 
+@app.post("/create-room")
+async def create_room(room: RoomCreate, session: SessionDep):
+    db_room = Room(
+        room_name=room.room_name,
+        max_players=room.max_players,
+        number_of_actions=room.number_of_actions,
+    )
+    session.add(db_room)
+    session.commit()
+    session.refresh(db_room)
+    return db_room
+
+@app.get("/rooms")
+async def get_rooms( session: SessionDep):
+    rooms = session.exec(select(Room)).all()
+    return rooms
+    
+    
+    
 
 @app.post("/token")
 async def login_for_access_token(
@@ -225,7 +260,7 @@ async def login_for_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
     return Token(access_token=access_token, token_type="bearer")
-
+    
 
 @app.get("/users/me/", response_model=UserPublic)
 async def read_current_user(current_user: CurrentUser):
