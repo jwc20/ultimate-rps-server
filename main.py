@@ -14,13 +14,16 @@ from passlib.context import CryptContext
 from pydantic import BaseModel
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 from starlette.middleware.cors import CORSMiddleware
-
+from websocket_manager import WebSocketManager
+import json
+from typing import Optional
 
 SECRET_KEY = "d1476829cf5d3ea5326220b34a3d6ab78031d28f6b75d2575d9177f4e21a7fa4"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 broadcast = Broadcast("redis://localhost:6379")
+socket_manager = WebSocketManager()
 
 
 # https://github.com/pyca/bcrypt/issues/684#issuecomment-2430047176
@@ -62,9 +65,9 @@ def add_logging_middleware(app):
 
     return middleware
 
+
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(add_cors_middleware)
-
 
 
 # Authentication Models
@@ -103,19 +106,28 @@ class UserUpdate(BaseModel):
     disabled: bool | None = None
     password: str | None = None
 
+
 class RoomBase(SQLModel):
     room_name: str = Field(index=True)
     max_players: int = Field(default=None)
     number_of_actions: int = Field(default=None)
 
+
 class Room(RoomBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
 
+
 class RoomCreate(RoomBase):
-    room_name: str 
-    max_players: int | None = 2 
+    room_name: str
+    max_players: int | None = 2
     number_of_actions: int | None = 3
 
+class Message(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    room_id: int = Field(foreign_key="room.id", index=True)
+    username: str
+    message: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 # Database setup
 sqlite_file_name = "database.db"
@@ -168,7 +180,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
 
 
 async def get_current_user(
-    token: Annotated[str, Depends(oauth2_scheme)], session: SessionDep
+        token: Annotated[str, Depends(oauth2_scheme)], session: SessionDep
 ):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -190,7 +202,7 @@ async def get_current_user(
 
 
 async def get_current_active_user(
-    current_user: Annotated[User, Depends(get_current_user)],
+        current_user: Annotated[User, Depends(get_current_user)],
 ):
     if current_user.disabled:
         raise HTTPException(status_code=400, detail="Inactive user")
@@ -207,7 +219,6 @@ def create_db_and_tables():
 # Authentication endpoints
 @app.post("/register", response_model=UserPublic)
 def register(user: UserCreate, session: SessionDep):
-    # Check if user already exists
     db_user = get_user_by_username(session, user.username)
     if db_user:
         raise HTTPException(
@@ -215,7 +226,6 @@ def register(user: UserCreate, session: SessionDep):
             detail="Username already registered",
         )
 
-    # Create new user
     hashed_password = get_password_hash(user.password)
     db_user = User(
         username=user.username,
@@ -229,7 +239,7 @@ def register(user: UserCreate, session: SessionDep):
 
 @app.post("/token")
 async def login_for_access_token(
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()], session: SessionDep
+        form_data: Annotated[OAuth2PasswordRequestForm, Depends()], session: SessionDep
 ) -> Token:
     user = authenticate_user(session, form_data.username, form_data.password)
     if not user:
@@ -243,7 +253,7 @@ async def login_for_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
     return Token(access_token=access_token, token_type="bearer")
-    
+
 
 @app.get("/users/me/", response_model=UserPublic)
 async def read_current_user(current_user: CurrentUser):
@@ -253,14 +263,12 @@ async def read_current_user(current_user: CurrentUser):
 # User management endpoints (protected)
 @app.post("/users/", response_model=UserPublic)
 def create_user(user: UserCreate, session: SessionDep, current_user: CurrentUser):
-    # Check if user already exists
     db_user = get_user_by_username(session, user.username)
     if db_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Username already exists"
         )
 
-    # Create new user
     hashed_password = get_password_hash(user.password)
     db_user = User(
         username=user.username,
@@ -274,10 +282,10 @@ def create_user(user: UserCreate, session: SessionDep, current_user: CurrentUser
 
 @app.get("/users/", response_model=list[UserPublic])
 def read_users(
-    session: SessionDep,
-    current_user: CurrentUser,
-    offset: int = 0,
-    limit: Annotated[int, Query(le=100)] = 100,
+        session: SessionDep,
+        current_user: CurrentUser,
+        offset: int = 0,
+        limit: Annotated[int, Query(le=100)] = 100,
 ):
     users = session.exec(select(User).offset(offset).limit(limit)).all()
     return users
@@ -293,23 +301,20 @@ def read_user(user_id: int, session: SessionDep, current_user: CurrentUser):
 
 @app.patch("/users/{user_id}", response_model=UserPublic)
 def update_user(
-    user_id: int,
-    user_update: UserUpdate,
-    session: SessionDep,
-    current_user: CurrentUser,
+        user_id: int,
+        user_update: UserUpdate,
+        session: SessionDep,
+        current_user: CurrentUser,
 ):
     user_db = session.get(User, user_id)
     if not user_db:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Handle password update separately
     user_data = user_update.model_dump(exclude_unset=True, exclude={"password"})
 
-    # Update password if provided
     if user_update.password is not None:
         user_data["hashed_password"] = get_password_hash(user_update.password)
 
-    # Update user fields
     user_db.sqlmodel_update(user_data)
     session.add(user_db)
     session.commit()
@@ -319,7 +324,7 @@ def update_user(
 
 @app.delete("/users/{user_id}")
 def delete_user(user_id: int, session: SessionDep, current_user: CurrentUser):
-    # Prevent users from deleting themselves
+    # prevent users from deleting themselves
     if current_user.id == user_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -355,30 +360,73 @@ async def get_rooms(session: SessionDep):
     return rooms
 
 
-async def chatroom_ws_receiver(websocket: WebSocket, room_id: str):
+
+async def chatroom_ws_receiver(websocket: WebSocket, room_id: str, user_id: str, session: Session):
     async for message in websocket.iter_text():
+        try:
+            msg_data = json.loads(message)
+            db_message = Message(
+                room_id=int(room_id),
+                username=msg_data.get("username", user_id),
+                message=msg_data.get("message", "")
+            )
+            session.add(db_message)
+            session.commit()
+
+        except json.JSONDecodeError:
+            pass
+
         await broadcast.publish(channel=f"chatroom_{room_id}", message=message)
 
 
-async def chatroom_ws_sender(websocket: WebSocket, room_id: str):
+async def chatroom_ws_sender(websocket: WebSocket, room_id: str, user_id: str):
     async with broadcast.subscribe(channel=f"chatroom_{room_id}") as subscriber:
         async for event in subscriber:
             await websocket.send_text(event.message)
 
 
 @app.websocket("/ws/{room_id}")
-async def websocket_chat(websocket: WebSocket, room_id: str):
-    await websocket.accept()
-    async with anyio.create_task_group() as task_group:
-        async def run_chatroom_ws_receiver() -> None:
-            await chatroom_ws_receiver(websocket=websocket, room_id=room_id)
-            task_group.cancel_scope.cancel()
+async def websocket_endpoint(
+        websocket: WebSocket,
+        room_id: str,
+        session: Optional[Session] = Depends(get_session),
+        token: Optional[str] = Query(None)
+):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
 
-        task_group.start_soon(run_chatroom_ws_receiver)
-        await chatroom_ws_sender(websocket=websocket, room_id=room_id)
-        
-        
+        if not user_id:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
 
+        await websocket.accept()
+
+        messages = session.exec(
+            select(Message)
+            .where(Message.room_id == int(room_id))
+            .order_by(Message.created_at)
+            .limit(50)
+        ).all()
+
+        for msg in messages:
+            history_msg = {
+                "username": msg.username,
+                "message": msg.message,
+                "timestamp": msg.created_at.isoformat()
+            }
+            await websocket.send_text(json.dumps(history_msg))
+        
+        async with anyio.create_task_group() as task_group:
+            async def run_chatroom_ws_receiver() -> None:
+                await chatroom_ws_receiver(websocket=websocket, room_id=room_id, user_id=user_id, session=session)
+                task_group.cancel_scope.cancel()
+
+            task_group.start_soon(run_chatroom_ws_receiver)
+            await chatroom_ws_sender(websocket=websocket, room_id=room_id, user_id=user_id)
+
+    except jwt.InvalidTokenError:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
 
 
 @app.get("/")
