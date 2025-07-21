@@ -2,9 +2,9 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from dataclasses import dataclass
-from websocket_manager import WebsocketManager
 import bcrypt
 from broadcaster import Broadcast
+import anyio
 
 import jwt
 from fastapi import FastAPI, Depends, HTTPException, Query, status, WebSocket, WebSocketDisconnect
@@ -14,7 +14,6 @@ from passlib.context import CryptContext
 from pydantic import BaseModel
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 from starlette.middleware.cors import CORSMiddleware
-from starlette.concurrency import run_until_first_complete
 
 
 SECRET_KEY = "d1476829cf5d3ea5326220b34a3d6ab78031d28f6b75d2575d9177f4e21a7fa4"
@@ -67,7 +66,6 @@ app = FastAPI(lifespan=lifespan)
 app.add_middleware(add_cors_middleware)
 
 
-manager = WebsocketManager()
 
 # Authentication Models
 class Token(BaseModel):
@@ -347,7 +345,7 @@ async def create_room(room: RoomCreate, session: SessionDep):
     session.commit()
     session.refresh(db_room)
     print(db_room.id)
-    manager.create_room(db_room.id, db_room.room_name, db_room.max_players, db_room.number_of_actions)
+    # manager.create_room(db_room.id, db_room.room_name, db_room.max_players, db_room.number_of_actions)
     return db_room
 
 
@@ -371,10 +369,15 @@ async def chatroom_ws_sender(websocket: WebSocket, room_id: str):
 @app.websocket("/ws/{room_id}")
 async def websocket_chat(websocket: WebSocket, room_id: str):
     await websocket.accept()
-    await run_until_first_complete(
-        (chatroom_ws_receiver, {"websocket": websocket, "room_id":room_id}),
-        (chatroom_ws_sender, {"websocket": websocket, "room_id":room_id}),
-    )
+    async with anyio.create_task_group() as task_group:
+        async def run_chatroom_ws_receiver() -> None:
+            await chatroom_ws_receiver(websocket=websocket, room_id=room_id)
+            task_group.cancel_scope.cancel()
+
+        task_group.start_soon(run_chatroom_ws_receiver)
+        await chatroom_ws_sender(websocket=websocket, room_id=room_id)
+        
+        
 
 
 
