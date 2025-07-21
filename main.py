@@ -2,23 +2,26 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from dataclasses import dataclass
-from websocket import WebsocketManager
+from websocket_manager import WebsocketManager
 import bcrypt
+from broadcaster import Broadcast
 
 import jwt
-from fastapi import FastAPI, Depends, HTTPException, Query, status
+from fastapi import FastAPI, Depends, HTTPException, Query, status, WebSocket, WebSocketDisconnect
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jwt.exceptions import InvalidTokenError
 from passlib.context import CryptContext
 from pydantic import BaseModel
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 from starlette.middleware.cors import CORSMiddleware
-import httpx
-from starlette.middleware import Middleware
+from starlette.concurrency import run_until_first_complete
+
 
 SECRET_KEY = "d1476829cf5d3ea5326220b34a3d6ab78031d28f6b75d2575d9177f4e21a7fa4"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+broadcast = Broadcast("redis://localhost:6379")
 
 
 # https://github.com/pyca/bcrypt/issues/684#issuecomment-2430047176
@@ -37,7 +40,9 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_db_and_tables()
+    await broadcast.connect()
     yield
+    await broadcast.disconnect()
     print("shutting down")
 
 
@@ -57,7 +62,6 @@ def add_logging_middleware(app):
         await app(scope, receive, send)
 
     return middleware
-
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(add_cors_middleware)
@@ -224,25 +228,6 @@ def register(user: UserCreate, session: SessionDep):
     session.refresh(db_user)
     return db_user
 
-@app.post("/create-room")
-async def create_room(room: RoomCreate, session: SessionDep):
-    db_room = Room(
-        room_name=room.room_name,
-        max_players=room.max_players,
-        number_of_actions=room.number_of_actions,
-    )
-    session.add(db_room)
-    session.commit()
-    session.refresh(db_room)
-    return db_room
-
-@app.get("/rooms")
-async def get_rooms( session: SessionDep):
-    rooms = session.exec(select(Room)).all()
-    return rooms
-    
-    
-    
 
 @app.post("/token")
 async def login_for_access_token(
@@ -349,6 +334,48 @@ def delete_user(user_id: int, session: SessionDep, current_user: CurrentUser):
     session.delete(user)
     session.commit()
     return {"ok": True}
+
+
+@app.post("/create-room")
+async def create_room(room: RoomCreate, session: SessionDep):
+    db_room = Room(
+        room_name=room.room_name,
+        max_players=room.max_players,
+        number_of_actions=room.number_of_actions,
+    )
+    session.add(db_room)
+    session.commit()
+    session.refresh(db_room)
+    print(db_room.id)
+    manager.create_room(db_room.id, db_room.room_name, db_room.max_players, db_room.number_of_actions)
+    return db_room
+
+
+@app.get("/rooms")
+async def get_rooms(session: SessionDep):
+    rooms = session.exec(select(Room)).all()
+    return rooms
+
+
+async def chatroom_ws_receiver(websocket: WebSocket, room_id: str):
+    async for message in websocket.iter_text():
+        await broadcast.publish(channel=f"chatroom_{room_id}", message=message)
+
+
+async def chatroom_ws_sender(websocket: WebSocket, room_id: str):
+    async with broadcast.subscribe(channel=f"chatroom_{room_id}") as subscriber:
+        async for event in subscriber:
+            await websocket.send_text(event.message)
+
+
+@app.websocket("/ws/{room_id}")
+async def websocket_chat(websocket: WebSocket, room_id: str):
+    await websocket.accept()
+    await run_until_first_complete(
+        (chatroom_ws_receiver, {"websocket": websocket, "room_id":room_id}),
+        (chatroom_ws_sender, {"websocket": websocket, "room_id":room_id}),
+    )
+
 
 
 @app.get("/")
