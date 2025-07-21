@@ -23,6 +23,9 @@ from passlib.context import CryptContext
 from pydantic import BaseModel
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 from starlette.middleware.cors import CORSMiddleware
+from enc_library import EncLibrary
+
+from rps import FixedActionPlayer, Game
 
 SECRET_KEY = "d1476829cf5d3ea5326220b34a3d6ab78031d28f6b75d2575d9177f4e21a7fa4"
 ALGORITHM = "HS256"
@@ -133,6 +136,7 @@ class Message(SQLModel, table=True):
     room_id: int = Field(foreign_key="room.id", index=True)
     username: str
     message: str
+    type: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -366,17 +370,31 @@ async def get_rooms(session: SessionDep):
     rooms = session.exec(select(Room)).all()
     return rooms
 
+@app.get("/room/{room_id}")
+async def get_rooms(room_id: int, session: SessionDep):
+    room = session.exec(select(Room).where(Room.id == room_id)).first()
+    return room
+
+
 
 async def chatroom_ws_receiver(
     websocket: WebSocket, room_id: str, user_id: str, session: Session
 ):
+    game = Game()
+    # enc = EncLibrary()
     async for message in websocket.iter_text():
+        # print(aes_encrypted)
         try:
+            # key = "buttfart"
+            # aes_decrypted = enc.two_way_dec_aes(key, aes_encrypted)
+            # msg_data = json.loads(aes_decrypted)
             msg_data = json.loads(message)
+
             db_message = Message(
                 room_id=int(room_id),
                 username=msg_data.get("username", user_id),
                 message=msg_data.get("message", ""),
+                type=msg_data.get("type", "message"),
             )
             session.add(db_message)
             session.commit()
@@ -388,8 +406,11 @@ async def chatroom_ws_receiver(
 
 
 async def chatroom_ws_sender(websocket: WebSocket, room_id: str, user_id: str):
+    enc = EncLibrary()
     async with broadcast.subscribe(channel=f"chatroom_{room_id}") as subscriber:
         async for event in subscriber:
+            key = "buttfart"
+            # aes_encrypted = enc.two_way_enc_aes(key, event.message)
             await websocket.send_text(event.message)
 
 
@@ -421,12 +442,12 @@ async def websocket_endpoint(
             history_msg = {
                 "username": msg.username,
                 "message": msg.message,
+                "type": msg.type,
                 "timestamp": msg.created_at.isoformat(),
             }
             await websocket.send_text(json.dumps(history_msg))
 
         async with anyio.create_task_group() as task_group:
-
             async def run_chatroom_ws_receiver() -> None:
                 await chatroom_ws_receiver(
                     websocket=websocket,
