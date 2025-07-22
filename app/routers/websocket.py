@@ -2,25 +2,23 @@ import json
 import time
 from typing import Dict, Set, Optional, List
 from dataclasses import dataclass, field
-from datetime import datetime
 import logging
 
-from fastapi import WebSocket, Depends, Query, HTTPException, status
 from sqlmodel import Session, select
 import jwt
 import anyio
 from broadcaster import Broadcast
 
 from ..models import Room, Message, User
-from rps import Game, FixedActionPlayer
+from ..config import SECRET_KEY, ALGORITHM
 from ..database import get_session
 from .auth import get_user_by_username
 
+from fastapi import APIRouter, Depends, Query, WebSocket, status,HTTPException
+from datetime import datetime, timezone
+from rps import Game, FixedActionPlayer
+
 log = logging.getLogger(__name__)
-
-from fastapi import APIRouter, Depends, Query, WebSocket, status
-from ..config import SECRET_KEY, ALGORITHM
-
 router = APIRouter()
 
 
@@ -301,7 +299,7 @@ async def websocket_receiver(
                             "type": "message",
                             "username": username,
                             "message": msg_data.get("message", ""),
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
                         },
                     )
 
