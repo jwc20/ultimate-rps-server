@@ -10,3 +10,11 @@ class RoomBase(SQLModel):
 
 class Room(RoomBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
+    
+    
+    
+# class RoomUserInfo(BaseModel):
+#     """Chatroom user metadata."""
+#     user_id: int
+#     connected_at: float
+#     message_count: int

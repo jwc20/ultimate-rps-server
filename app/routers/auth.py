@@ -2,12 +2,12 @@ from datetime import timedelta
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from database import SessionDep
-from models import User
-from schemas import Token, UserCreate, UserPublic
-from auth import authenticate_user, create_access_token, get_password_hash
-from auth.utils import get_user_by_username
-from config import ACCESS_TOKEN_EXPIRE_MINUTES
+from app.database import SessionDep
+from app.models import User
+from app.schemas import Token, UserCreate, UserPublic
+from app.auth import authenticate_user, create_access_token, get_password_hash
+from app.auth.utils import get_user_by_username
+from app.config import ACCESS_TOKEN_EXPIRE_MINUTES
 
 router = APIRouter()
 

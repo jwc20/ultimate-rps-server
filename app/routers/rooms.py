@@ -1,8 +1,8 @@
 from fastapi import APIRouter
 from sqlmodel import select
-from database import SessionDep
-from models import Room
-from schemas import RoomCreate
+from app.database import SessionDep
+from app.models import Room
+from app.schemas import RoomCreate
 
 router = APIRouter()
 

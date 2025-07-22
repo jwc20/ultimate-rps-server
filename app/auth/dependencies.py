@@ -3,10 +3,10 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 import jwt
 from jwt.exceptions import InvalidTokenError
-from database import SessionDep
-from models import User
-from schemas import TokenData
-from config import SECRET_KEY, ALGORITHM
+from app.database import SessionDep
+from app.models import User
+from app.schemas import TokenData
+from app.config import SECRET_KEY, ALGORITHM
 from .utils import get_user_by_username
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")

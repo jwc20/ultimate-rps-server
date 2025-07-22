@@ -1,4 +1,4 @@
-from models.room import RoomBase
+from app.models.room import RoomBase
 
 
 class RoomCreate(RoomBase):

@@ -1,11 +1,11 @@
 from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlmodel import select
-from database import SessionDep
-from models import User
-from schemas import UserCreate, UserPublic, UserUpdate
-from auth import CurrentUser, get_password_hash
-from auth.utils import get_user_by_username
+from app.database import SessionDep
+from app.models import User
+from app.schemas import UserCreate, UserPublic, UserUpdate
+from app.auth import CurrentUser, get_password_hash
+from app.auth.utils import get_user_by_username
 
 router = APIRouter(prefix="/users", tags=["users"])
 

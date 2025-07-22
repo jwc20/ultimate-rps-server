@@ -4,8 +4,8 @@ import bcrypt
 import jwt
 from passlib.context import CryptContext
 from sqlmodel import Session, select
-from models import User
-from config import SECRET_KEY, ALGORITHM
+from app.models import User
+from app.config import SECRET_KEY, ALGORITHM
 
 
 @dataclass
@@ -45,7 +45,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=120)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
