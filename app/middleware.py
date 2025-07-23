@@ -5,6 +5,7 @@ def add_cors_middleware(app):
     return CORSMiddleware(
         app=app,
         allow_origins=["*"],
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )

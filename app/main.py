@@ -6,9 +6,10 @@ from app.routers import auth_router, users_router, rooms_router, websocket_route
 
 from broadcaster import Broadcast
 from app.routers.websocket import init_room_manager
+from .config import REDIS_URL
 
 
-broadcast = Broadcast("redis://localhost:6379")
+broadcast = Broadcast(REDIS_URL)
 
 
 @asynccontextmanager
