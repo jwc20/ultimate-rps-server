@@ -9,12 +9,13 @@ import jwt
 import anyio
 from broadcaster import Broadcast
 
-from ..models import Room, Message, User
+from ..models import Room, Message
 from ..config import SECRET_KEY, ALGORITHM
 from ..database import get_session
 from .auth import get_user_by_username
 
-from fastapi import APIRouter, Depends, Query, WebSocket, status,HTTPException
+from fastapi import APIRouter, Depends, Query, WebSocket, status, HTTPException
+from fastapi.websockets import WebSocketState
 from datetime import datetime, timezone
 from rps import Game, FixedActionPlayer
 
@@ -326,7 +327,8 @@ async def websocket_sender(
 ) -> None:
     async with manager.broadcast.subscribe(channel=f"chatroom_{room_id}") as subscriber:
         async for event in subscriber:
-            await websocket.send_text(event.message)
+            if websocket.client_state == WebSocketState.CONNECTED:
+                await websocket.send_text(event.message)
 
 
 @router.websocket("/ws/{room_id}")
