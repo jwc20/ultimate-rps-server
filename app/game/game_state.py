@@ -1,35 +1,13 @@
-
 from typing import Dict, List, Optional, Set
 
 import time
 from fastapi import WebSocket
-from dataclasses import dataclass, field
 from rps import Game, FixedActionPlayer
+from ..models import PlayerInfo, GameRoundState
 
 import logging
 
 log = logging.getLogger(__name__)
-
-
-@dataclass
-class PlayerInfo:
-    user_id: str
-    username: str
-    connected_at: float
-    actions_submitted: int = 0
-    is_eliminated: bool = False
-
-
-@dataclass
-class GameRoundState:
-    round_number: int
-    actions: Dict[str, int] = field(default_factory=dict)
-    ready_players: Set[str] = field(default_factory=set)
-
-    def reset(self):
-        self.actions.clear()
-        self.ready_players.clear()
-        self.round_number += 1
 
 
 class GameState:
