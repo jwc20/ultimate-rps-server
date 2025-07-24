@@ -1,4 +1,5 @@
-.identifier.sqlite 
+database.db
+identifier.sqlite 
 
 .DS_Store
 .idea
