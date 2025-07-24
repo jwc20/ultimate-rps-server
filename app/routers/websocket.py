@@ -20,10 +20,11 @@ from datetime import datetime, timezone
 
 from ..game import GameManager
 
+
 log = logging.getLogger(__name__)
 router = APIRouter()
 
-game_manager: Optional[GameManager] = None
+game_manager: GameManager | None = None
 
 
 def get_room_manager() -> GameManager:
@@ -43,7 +44,8 @@ async def websocket_receiver(
     room = await manager.get_or_create_room(room_id, session)
 
     try:
-        room.add_player(user_id, username, websocket)
+        await room.add_player(user_id, username, websocket, session)
+        
         await manager.broadcast_to_room(
             room_id,
             {
@@ -102,7 +104,7 @@ async def websocket_receiver(
                 )
 
     finally:
-        room.remove_player(username)
+        await room.remove_player(username, session)
         await manager.broadcast_to_room(
             room_id,
             {
@@ -126,7 +128,7 @@ async def websocket_sender(
 async def websocket_endpoint(
         websocket: WebSocket,
         room_id: str,
-        token: Optional[str] = Query(None),
+        token: str | None = Query(None),
         session: Session = Depends(get_session),
 ) -> None:
     manager = get_room_manager()
@@ -199,7 +201,7 @@ async def websocket_endpoint(
 @router.get("/rooms/{room_id}/players")
 async def get_room_players(
         room_id: str, session: Session = Depends(get_session)
-) -> Dict:
+) -> dict:
     manager = get_room_manager()
     room = await manager.get_or_create_room(room_id, session)
 
@@ -214,7 +216,7 @@ async def get_room_players(
 @router.post("/rooms/{room_id}/kick/{username}")
 async def kick_player(
         room_id: str, username: str, session: Session = Depends(get_session)
-) -> Dict:
+) -> dict:
     manager = get_room_manager()
     room = manager.rooms.get(room_id)
 

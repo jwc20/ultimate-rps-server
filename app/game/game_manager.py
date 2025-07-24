@@ -41,7 +41,7 @@ class GameManager:
         if not room:
             return
 
-        if room.submit_action(username, action):
+        if await room.submit_action(username, action):
             await self.broadcast_to_room(
                 room_id,
                 {
@@ -54,7 +54,7 @@ class GameManager:
 
             if room.all_players_ready():
                 try:
-                    results = room.process_round()
+                    results = await room.process_round()
                     await self.broadcast_to_room(
                         room_id, {"type": "round_complete", **results}
                     )
