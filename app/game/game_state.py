@@ -1,5 +1,3 @@
-from typing import Dict, List, Optional, Set
-
 import time
 from fastapi import WebSocket
 from rps import Game, FixedActionPlayer
@@ -18,14 +16,14 @@ class GameState:
         self.max_players = max_players
         self.number_of_actions = number_of_actions
 
-        self._connections: Dict[str, WebSocket] = {}
-        self._player_info: Dict[str, PlayerInfo] = {}
+        self._connections: dict[str, WebSocket] = {}
+        self._player_info: dict[str, PlayerInfo] = {}
 
         self.game_active = False
         self.game_over = False
-        self.winner: Optional[str] = None
+        self.winner: str | None = None
         self.current_round = GameRoundState(round_number=1)
-        self.eliminated_players: Set[str] = set()
+        self.eliminated_players: set[str] = set()
 
     def __len__(self) -> int:
         return len(self._connections)
@@ -35,7 +33,7 @@ class GameState:
         return len(self._connections) >= self.max_players
 
     @property
-    def active_players(self) -> List[str]:
+    def active_players(self) -> list[str]:
         return [
             username
             for username, info in self._player_info.items()
@@ -83,7 +81,7 @@ class GameState:
     def all_players_ready(self) -> bool:
         return len(self.current_round.ready_players) == len(self.active_players)
 
-    def process_round(self) -> Dict:
+    def process_round(self) -> dict:
         if not self.all_players_ready():
             raise ValueError("Not all players ready")
 

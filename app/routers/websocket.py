@@ -18,89 +18,27 @@ from fastapi import APIRouter, Depends, Query, WebSocket, status, HTTPException
 from fastapi.websockets import WebSocketState
 from datetime import datetime, timezone
 
-from ..game import GameState
+from ..game import GameManager
 
 log = logging.getLogger(__name__)
 router = APIRouter()
 
+game_manager: Optional[GameManager] = None
 
 
-
-
-
-
-class RoomManager:
-
-    def __init__(self, broadcast: Broadcast):
-        self.broadcast = broadcast
-        self.rooms: Dict[str, GameState] = {}
-
-    async def get_or_create_room(self, room_id: str, session: Session) -> GameState:
-        if room_id not in self.rooms:
-            room = session.exec(select(Room).where(Room.id == int(room_id))).first()
-            if not room:
-                raise ValueError(f"Room {room_id} not found in database")
-
-            self.rooms[room_id] = GameState(
-                room_id=int(room_id),
-                max_players=room.max_players,
-                number_of_actions=room.number_of_actions,
-            )
-
-        return self.rooms[room_id]
-
-    async def broadcast_to_room(self, room_id: str, message: Dict) -> None:
-        await self.broadcast.publish(
-            channel=f"chatroom_{room_id}", message=json.dumps(message)
-        )
-
-    async def handle_player_action(
-        self, room_id: str, username: str, action: int
-    ) -> None:
-        room = self.rooms.get(room_id)
-        if not room:
-            return
-
-        if room.submit_action(username, action):
-            await self.broadcast_to_room(
-                room_id,
-                {
-                    "type": "player_ready",
-                    "username": username,
-                    "ready_count": len(room.current_round.ready_players),
-                    "total_active": len(room.active_players),
-                },
-            )
-
-            if room.all_players_ready():
-                try:
-                    results = room.process_round()
-                    await self.broadcast_to_room(
-                        room_id, {"type": "round_complete", **results}
-                    )
-                except Exception as e:
-                    log.error(f"Error processing round: {e}")
-                    await self.broadcast_to_room(
-                        room_id, {"type": "error", "message": "Failed to process round"}
-                    )
-
-
-room_manager: Optional[RoomManager] = None
-
-
-def get_room_manager() -> RoomManager:
-    if room_manager is None:
-        raise RuntimeError("Room manager not initialized")
-    return room_manager
+def get_room_manager() -> GameManager:
+    if game_manager is None:
+        raise RuntimeError("Game manager not initialized")
+    return game_manager
 
 
 async def websocket_receiver(
-    websocket: WebSocket,
-    room_id: str,
-    user_id: str,
-    username: str,
-    session: Session,
-    manager: RoomManager,
+        websocket: WebSocket,
+        room_id: str,
+        user_id: str,
+        username: str,
+        session: Session,
+        manager: GameManager,
 ) -> None:
     room = await manager.get_or_create_room(room_id, session)
 
@@ -176,7 +114,7 @@ async def websocket_receiver(
 
 
 async def websocket_sender(
-    websocket: WebSocket, room_id: str, manager: RoomManager
+        websocket: WebSocket, room_id: str, manager: GameManager
 ) -> None:
     async with manager.broadcast.subscribe(channel=f"chatroom_{room_id}") as subscriber:
         async for event in subscriber:
@@ -186,10 +124,10 @@ async def websocket_sender(
 
 @router.websocket("/ws/{room_id}")
 async def websocket_endpoint(
-    websocket: WebSocket,
-    room_id: str,
-    token: Optional[str] = Query(None),
-    session: Session = Depends(get_session),
+        websocket: WebSocket,
+        room_id: str,
+        token: Optional[str] = Query(None),
+        session: Session = Depends(get_session),
 ) -> None:
     manager = get_room_manager()
 
@@ -260,7 +198,7 @@ async def websocket_endpoint(
 
 @router.get("/rooms/{room_id}/players")
 async def get_room_players(
-    room_id: str, session: Session = Depends(get_session)
+        room_id: str, session: Session = Depends(get_session)
 ) -> Dict:
     manager = get_room_manager()
     room = await manager.get_or_create_room(room_id, session)
@@ -275,7 +213,7 @@ async def get_room_players(
 
 @router.post("/rooms/{room_id}/kick/{username}")
 async def kick_player(
-    room_id: str, username: str, session: Session = Depends(get_session)
+        room_id: str, username: str, session: Session = Depends(get_session)
 ) -> Dict:
     manager = get_room_manager()
     room = manager.rooms.get(room_id)
@@ -292,5 +230,5 @@ async def kick_player(
 
 
 async def init_room_manager(broadcast: Broadcast):
-    global room_manager
-    room_manager = RoomManager(broadcast)
+    global game_manager
+    game_manager = GameManager(broadcast)
