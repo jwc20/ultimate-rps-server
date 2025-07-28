@@ -21,10 +21,13 @@ class UserUpdatePassword(BaseModel):
     current_password: str | None = None
     new_password: str | None = None
 
-class UserPasswordChangeResponse(BaseModel):
-    message: str
-    user_id: int
-
 class UserUpdateUsername(BaseModel):
     username: str | None = None
 
+class UserUpdateResponse(BaseModel):
+    message: str
+    user_id: int
+    
+    
+class AdminResetPassword(BaseModel):
+    new_password: str

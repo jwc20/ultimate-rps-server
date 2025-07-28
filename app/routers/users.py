@@ -1,10 +1,9 @@
 from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlmodel import select
+from sqlmodel import select, Field
 from app.database import SessionDep
 from app.models import User
-from app.schemas import UserCreate, UserPublic, UserUpdate, UserUpdatePassword, UserUpdateUsername, \
-    UserPasswordChangeResponse
+from app.schemas import UserCreate, UserPublic, UserUpdate, UserUpdatePassword, UserUpdateUsername, UserUpdateResponse, AdminResetPassword
 from app.auth import CurrentUser, get_password_hash
 from app.auth.utils import get_user_by_username, verify_password
 
@@ -96,6 +95,11 @@ def delete_user(user_id: int, session: SessionDep, current_user: CurrentUser):
 @router.patch("/{user_id}/change-username")
 def change_user_username(user_id: int, user_update_username: UserUpdateUsername, session: SessionDep,
                          current_user: CurrentUser):
+    if current_user.id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only change your own password"
+        )
     user_db = session.get(User, user_id)
     if not user_db:
         raise HTTPException(status_code=404, detail="User not found")
@@ -115,7 +119,7 @@ def change_user_password(
         user_update_password: UserUpdatePassword,
         session: SessionDep,
         current_user: CurrentUser
-) -> UserPasswordChangeResponse:
+) -> UserUpdateResponse:
     if current_user.id != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -143,7 +147,34 @@ def change_user_password(
     user_db.hashed_password = get_password_hash(user_update_password.new_password)
     session.add(user_db)
     session.commit()
-    return UserPasswordChangeResponse(
+    return UserUpdateResponse(
         message="Password changed successfully",
         user_id=user_id
     )
+
+
+@router.patch("/{user_id}/reset-password")
+def admin_reset_user_password(
+        user_id: int,
+        new_password: AdminResetPassword,
+        session: SessionDep,
+        current_user: CurrentUser
+):
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+
+    user_db = session.get(User, user_id)
+    if not user_db:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    user_db.hashed_password = get_password_hash(new_password)
+    session.add(user_db)
+    session.commit()
+
+    return {"message": f"Password reset for user {user_id}", "user_id": user_id}
