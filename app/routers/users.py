@@ -25,7 +25,7 @@ def create_user(user: UserCreate, session: SessionDep, current_user: CurrentUser
 
     hashed_password = get_password_hash(user.password)
     db_user = User(
-        username=user.username,
+        username=user.username.lower().strip(),
         hashed_password=hashed_password,
     )
     session.add(db_user)

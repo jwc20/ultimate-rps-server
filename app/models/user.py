@@ -3,6 +3,7 @@ from sqlmodel import Field, SQLModel
 
 class UserBase(SQLModel):
     username: str = Field(unique=True, index=True)
+    is_admin: bool = Field(default=False)
     disabled: bool = Field(default=False)
 
 

@@ -26,7 +26,8 @@ def get_password_hash(password):
 
 
 def get_user_by_username(session: Session, username: str):
-    statement = select(User).where(User.username == username)
+    username_cleaned = username.lower().strip()
+    statement = select(User).where(User.username == username_cleaned)
     user = session.exec(statement).first()
     return user
 
