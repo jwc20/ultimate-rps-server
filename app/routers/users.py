@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlmodel import select
 from app.database import SessionDep
 from app.models import User
-from app.schemas import UserCreate, UserPublic, UserUpdate
+from app.schemas import UserCreate, UserPublic, UserUpdate, UserUpdatePassword, UserUpdateUsername
 from app.auth import CurrentUser, get_password_hash
 from app.auth.utils import get_user_by_username
 
@@ -90,3 +90,35 @@ def delete_user(user_id: int, session: SessionDep, current_user: CurrentUser):
     session.delete(user)
     session.commit()
     return {"ok": True}
+
+@router.patch("/{user_id}/change-password")
+def change_user_password(user_id: int, user_update_password: UserUpdatePassword, session: SessionDep, current_user: CurrentUser):
+    user_db = session.get(User, user_id)
+    if not user_db:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user_data = user_update_password.model_dump(exclude_unset=True, exclude={"password"})
+
+    if user_update_password.password is not None:
+        user_data["hashed_password"] = get_password_hash(user_update_password.password)
+
+    user_db.sqlmodel_update(user_data)
+    session.add(user_db)
+    session.commit()
+    session.refresh(user_db)
+    return user_db
+
+
+@router.patch("/{user_id}/change-username")
+def change_user_username(user_id: int, user_update_username: UserUpdateUsername, session: SessionDep, current_user: CurrentUser):
+    user_db = session.get(User, user_id)
+    if not user_db:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user_data = user_update_username.model_dump(exclude_unset=True, exclude={"password"})
+
+    user_db.sqlmodel_update(user_data)
+    session.add(user_db)
+    session.commit()
+    session.refresh(user_db)
+    return user_db

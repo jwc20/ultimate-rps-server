@@ -14,4 +14,12 @@ class UserPublic(BaseModel):
 
 class UserUpdate(BaseModel):
     disabled: bool | None = None
+    username: str | None = None
     password: str | None = None
+
+class UserUpdatePassword(BaseModel):
+    password: str | None = None
+
+
+class UserUpdateUsername(BaseModel):
+    username: str | None = None

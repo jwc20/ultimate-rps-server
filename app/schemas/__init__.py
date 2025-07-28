@@ -1,3 +1,3 @@
-from .user import UserCreate, UserPublic, UserUpdate
+from .user import UserCreate, UserPublic, UserUpdate, UserUpdateUsername, UserUpdatePassword
 from .room import RoomCreate
 from .token import Token, TokenData
