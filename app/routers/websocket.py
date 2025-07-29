@@ -15,16 +15,16 @@ from fastapi import APIRouter, Depends, Query, WebSocket, status, HTTPException,
 from fastapi.websockets import WebSocketState
 from datetime import datetime, timezone
 
-from ..game import GameManager
+from ..game import RoomManager
 
 
 log = logging.getLogger(__name__)
 router = APIRouter()
 
-game_manager: GameManager | None = None
+game_manager: RoomManager | None = None
 
 
-def get_room_manager() -> GameManager:
+def get_room_manager() -> RoomManager:
     if game_manager is None:
         raise RuntimeError("Game manager not initialized")
     return game_manager
@@ -36,7 +36,7 @@ async def websocket_receiver(
         user_id: str,
         username: str,
         session: Session,
-        manager: GameManager,
+        manager: RoomManager,
 ) -> None:
     room = await manager.get_or_create_room(room_id, session)
 
@@ -140,7 +140,7 @@ async def websocket_receiver(
 
 
 async def websocket_sender(
-        websocket: WebSocket, room_id: str, manager: GameManager
+        websocket: WebSocket, room_id: str, manager: RoomManager
 ) -> None:
     async with manager.broadcast.subscribe(channel=f"chatroom_{room_id}") as subscriber:
         async for event in subscriber:
@@ -224,4 +224,4 @@ async def websocket_endpoint(
 
 async def init_room_manager(broadcast: Broadcast):
     global game_manager
-    game_manager = GameManager(broadcast)
+    game_manager = RoomManager(broadcast)

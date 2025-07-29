@@ -9,7 +9,7 @@ import logging
 log = logging.getLogger(__name__)
 
 
-class GameManager:
+class RoomManager:
 
     def __init__(self, broadcast: Broadcast):
         self.broadcast = broadcast
