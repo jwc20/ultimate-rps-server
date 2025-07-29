@@ -69,19 +69,32 @@ async def websocket_receiver(
                         )
 
                 elif msg_type == "kick_player":
-                    host = msg_data.get("username", "")
-                    kick_player = msg_data.get("message", "")
+                    host_username = msg_data.get("username", "")
+                    target_username = msg_data.get("target", "")
                     
-                    if host and kick_player:
-                        await manager.broadcast_to_room(
-                            room_id,
-                            {
-                                "type": "kick_player",
-                                "host": host,
-                                "kick_player": kick_player,
-                            },
-                        )
+                    if host_username not in room._player_info:
+                        await websocket.send_json({"type": "error", "message": "Unauthorized"})
+                        continue
 
+                    if target_username not in room._connections:
+                        await websocket.send_json({"type": "error", "message": "Player not found"})
+                        continue
+
+                    target_ws = room._connections[target_username]
+                    await target_ws.close(code=4001, reason="Kicked by host")
+                    room._kicked_players.add(target_username)
+
+                    await manager.broadcast_to_room(
+                        room_id,
+                        {
+                            "type": "kick_player",
+                            "host": host_username,
+                            "kick_player": target_username,
+                            "players": room.active_players,
+                            "kicked_players": room.kicked_players,
+                        },
+                    )
+                    
                 elif msg_type == "reset_game" and room.game_over:
                     room.reset_game()
                     await manager.broadcast_to_room(
