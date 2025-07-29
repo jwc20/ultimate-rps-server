@@ -10,7 +10,6 @@ log = logging.getLogger(__name__)
 
 
 class RoomManager:
-
     def __init__(self, broadcast: Broadcast):
         self.broadcast = broadcast
         self.rooms: dict[str, GameState] = {}
