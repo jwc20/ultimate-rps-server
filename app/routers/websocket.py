@@ -222,40 +222,6 @@ async def websocket_endpoint(
         raise
 
 
-@router.get("/rooms/{room_id}/players")
-async def get_room_players(
-        room_id: str, session: Session = Depends(get_session)
-) -> dict:
-    manager = get_room_manager()
-    room = await manager.get_or_create_room(room_id, session)
-
-    return {
-        "room_id": room_id,
-        "players": room.active_players,
-        "max_players": room.max_players,
-        "game_active": room.game_active,
-    }
-
-
-@router.post("/rooms/{room_id}/kick/{username}")
-async def kick_player(
-        room_id: str, username: str, session: Session = Depends(get_session), response: Response = None
-) -> dict:
-    manager = get_room_manager()
-    room = manager.rooms.get(room_id)
-
-    if not room:
-        raise HTTPException(404, detail="Room not found")
-
-    if username not in room._connections:
-        raise HTTPException(404, detail="Player not found")
-
-    await room._connections[username].close(4001, "Kicked by host")
-    room._kicked_players.add(username)
-    
-    return {"success": True, "status": status.HTTP_200_OK}
-
-
 async def init_room_manager(broadcast: Broadcast):
     global game_manager
     game_manager = GameManager(broadcast)
