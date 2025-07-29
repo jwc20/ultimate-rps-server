@@ -714,15 +714,15 @@ wheels = [
 
 [[package]]
 name = "rock-paper-scissors-py"
-version = "0.1.3.1"
+version = "0.1.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "build" },
     { name = "pytest" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/58/ed/dbed052f1e29eb65704a1d456bc00c4b7469bec8c17c2fdd0a46e05b8c4c/rock_paper_scissors_py-0.1.3.1.tar.gz", hash = "sha256:93116f7bc6398ba17a14f1e0a6ae4b09f2b8c75af82a96988de28a02dbda8936", size = 5594 }
+sdist = { url = "https://files.pythonhosted.org/packages/f1/76/f417d4d810dc4e01346c29aee30d71b89e4acd840288d4afc56850206378/rock_paper_scissors_py-0.1.4.tar.gz", hash = "sha256:ce025f4059ec845ce0b6fd6ea3ba40c439996ca9d3398ffd2db8a414f0718a1e", size = 5687 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7c/48/719e30471ad9dc1a20b248a34273dbda040f7a4ad7d878fddeeab97f4f7f/rock_paper_scissors_py-0.1.3.1-py3-none-any.whl", hash = "sha256:8a6ecf8612ad9d0f1291f62bd28e6e7bd37d44ed183815f2b5307c90c3ba88bc", size = 5879 },
+    { url = "https://files.pythonhosted.org/packages/5b/d0/ce1609c0d75bb2043a5ede94f9956fb9d65814e4a38751ec109b5c95c0c6/rock_paper_scissors_py-0.1.4-py3-none-any.whl", hash = "sha256:ae4c584ea1a25a86ff9e2e22f3d387f70619262f6b18c97f849079715ff9b4d6", size = 6010 },
 ]
 
 [[package]]
@@ -893,7 +893,7 @@ requires-dist = [
     { name = "pyjwt", specifier = ">=2.10.1" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "python-multipart", specifier = ">=0.0.20" },
-    { name = "rock-paper-scissors-py", specifier = ">=0.1.3.1" },
+    { name = "rock-paper-scissors-py", specifier = ">=0.1.4" },
     { name = "sqlmodel", specifier = ">=0.0.24" },
     { name = "visidata", specifier = ">=3.2" },
     { name = "websockets", specifier = ">=15.0.1" },

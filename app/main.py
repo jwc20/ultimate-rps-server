@@ -2,10 +2,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from app.database import create_db_and_tables
 from app.middleware import add_cors_middleware
-from app.routers import auth_router, users_router, rooms_router, websocket_router
+from app.routers import auth_router, users_router, rooms_router, websocket_router, init_room_manager
 
 from broadcaster import Broadcast
-from app.routers.websocket import init_room_manager
 from .config import REDIS_URL
 
 
