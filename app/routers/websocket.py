@@ -1,7 +1,4 @@
 import json
-import time
-from typing import Dict, Set, Optional, List
-from dataclasses import dataclass, field
 import logging
 
 from sqlmodel import Session, select
@@ -14,7 +11,7 @@ from ..config import SECRET_KEY, ALGORITHM
 from ..database import get_session
 from .auth import get_user_by_username
 
-from fastapi import APIRouter, Depends, Query, WebSocket, status, HTTPException
+from fastapi import APIRouter, Depends, Query, WebSocket, status, HTTPException, Response
 from fastapi.websockets import WebSocketState
 from datetime import datetime, timezone
 
@@ -69,6 +66,20 @@ async def websocket_receiver(
                         await manager.broadcast_to_room(
                             room_id,
                             {"type": "game_started", "players": room.active_players},
+                        )
+
+                elif msg_type == "kick_player":
+                    host = msg_data.get("username", "")
+                    kick_player = msg_data.get("message", "")
+                    
+                    if host and kick_player:
+                        await manager.broadcast_to_room(
+                            room_id,
+                            {
+                                "type": "kick_player",
+                                "host": host,
+                                "kick_player": kick_player,
+                            },
                         )
 
                 elif msg_type == "reset_game" and room.game_over:
@@ -215,7 +226,7 @@ async def get_room_players(
 
 @router.post("/rooms/{room_id}/kick/{username}")
 async def kick_player(
-        room_id: str, username: str, session: Session = Depends(get_session)
+        room_id: str, username: str, session: Session = Depends(get_session), response: Response = None
 ) -> dict:
     manager = get_room_manager()
     room = manager.rooms.get(room_id)
@@ -226,9 +237,10 @@ async def kick_player(
     if username not in room._connections:
         raise HTTPException(404, detail="Player not found")
 
-    await room._connections[username].close()
-
-    return {"message": f"Player {username} kicked from room {room_id}"}
+    await room._connections[username].close(4001, "Kicked by host")
+    room._kicked_players.add(username)
+    
+    return {"success": True, "status": status.HTTP_200_OK}
 
 
 async def init_room_manager(broadcast: Broadcast):

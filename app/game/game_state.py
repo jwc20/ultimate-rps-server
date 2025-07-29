@@ -20,6 +20,7 @@ class GameState:
 
         self._connections: dict[str, WebSocket] = {}
         self._player_info: dict[str, PlayerInfo] = {}
+        self._kicked_players: set[str] = set()
 
         self.game_active = False
         self.game_over = False
@@ -41,12 +42,19 @@ class GameState:
             for username, info in self._player_info.items()
             if not info.is_eliminated
         ]
+    
+    @property
+    def kicked_players(self) -> list[str]:
+        return list(self._kicked_players)
+    
 
     async def add_player(self, user_id: str, username: str, websocket: WebSocket, session: Session) -> None:
         if self.is_full:
             raise ValueError(f"Room {self.room_id} is full")
         if username in self._connections:
             raise ValueError(f"Player {username} already in room")
+        if username in self._kicked_players:
+            raise ValueError(f"Player {username} has been kicked")
 
         log.info(f"Adding player {username} to room {self.room_id}")
         

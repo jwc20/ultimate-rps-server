@@ -153,28 +153,28 @@ def change_user_password(
     )
 
 
-@router.patch("/{user_id}/reset-password")
-def admin_reset_user_password(
-        user_id: int,
-        new_password: AdminResetPassword,
-        session: SessionDep,
-        current_user: CurrentUser
-):
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
-
-    user_db = session.get(User, user_id)
-    if not user_db:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-
-    user_db.hashed_password = get_password_hash(new_password)
-    session.add(user_db)
-    session.commit()
-
-    return {"message": f"Password reset for user {user_id}", "user_id": user_id}
+# @router.patch("/{user_id}/reset-password")
+# def admin_reset_user_password(
+#         user_id: int,
+#         new_password: AdminResetPassword,
+#         session: SessionDep,
+#         current_user: CurrentUser
+# ):
+#     if not current_user.is_admin:
+#         raise HTTPException(
+#             status_code=status.HTTP_403_FORBIDDEN,
+#             detail="Admin access required"
+#         )
+# 
+#     user_db = session.get(User, user_id)
+#     if not user_db:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail="User not found"
+#         )
+# 
+#     user_db.hashed_password = get_password_hash(new_password)
+#     session.add(user_db)
+#     session.commit()
+# 
+#     return {"message": f"Password reset for user {user_id}", "user_id": user_id}
