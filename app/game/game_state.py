@@ -22,10 +22,13 @@ class GameState:
         self._player_info: dict[str, PlayerInfo] = {}
         self._kicked_players: set[str] = set()
 
+        self.game = Game([], self.number_of_actions)
         self.game_active = False
         self.game_over = False
         self.winner: str | None = None
         self.current_round = GameRoundState(round_number=1)
+        self.game_number = 0
+        self.round_number = 0
         self.eliminated_players: set[str] = set()
 
     def __len__(self) -> int:
@@ -62,8 +65,6 @@ class GameState:
         room_db.number_of_players += 1
         session.add(room_db)
         session.commit()
-        
-        
         self._connections[username] = websocket
         self._player_info[username] = PlayerInfo(
             user_id=user_id, username=username, connected_at=time.time()
@@ -110,18 +111,17 @@ class GameState:
             raise ValueError("Not all players ready")
 
         players = []
-        actions = []
         for username, action in self.current_round.actions.items():
             players.append(FixedActionPlayer(username, action))
-            actions.append(action)
 
-        game = Game(players, self.number_of_actions)
-        eliminated_indices = game.eliminate(actions)
-
-        eliminated_usernames = []
-        for idx in eliminated_indices:
-            username = players[idx].name
-            eliminated_usernames.append(username)
+        self.game.players = players
+        original_players = [player.name for player in players]
+        self.round_number = self.game.round_num
+        self.game.round_num += 1
+        remaining_players = self.game.play_round()
+        remaining_usernames = [player.name for player in remaining_players]
+        eliminated_usernames = [name for name in original_players if name not in remaining_usernames]
+        for username in eliminated_usernames:
             self.eliminated_players.add(username)
             self._player_info[username].is_eliminated = True
 
@@ -131,17 +131,21 @@ class GameState:
             self.game_over = True
             self.game_active = False
             self.winner = remaining[0] if remaining else None
-        else:
-            self.current_round.reset()
 
+
+        self.current_round.ready_players = set()
+        
         return {
             "round": self.current_round.round_number - 1,
+            "game_round": self.game.round_num,
+            "game_number": self.game.game_num,
             "actions": dict(self.current_round.actions),
             "eliminated": eliminated_usernames,
             "remaining": remaining,
             "game_over": self.game_over,
             "winner": self.winner,
         }
+
 
     def start_game(self) -> bool:
         if len(self._connections) < 2:
@@ -159,6 +163,10 @@ class GameState:
         self.winner = None
         self.current_round = GameRoundState(round_number=1)
         self.eliminated_players.clear()
+        
+        self.game.reset()
+        self.round_number = self.game.round_num
+        self.game_number = self.game.game_num
 
         for info in self._player_info.values():
             info.is_eliminated = False

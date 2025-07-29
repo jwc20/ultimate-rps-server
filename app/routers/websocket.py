@@ -97,8 +97,9 @@ async def websocket_receiver(
                     
                 elif msg_type == "reset_game" and room.game_over:
                     room.reset_game()
+                    print(room)
                     await manager.broadcast_to_room(
-                        room_id, {"type": "game_reset", "players": room.active_players}
+                        room_id, {"type": "game_reset", "players": room.active_players, "kicked_players": room.kicked_players, "game_number": room.game_number, "game_round": room.round_number}
                     )
 
                 elif msg_type == "message":
