@@ -1,6 +1,6 @@
 import time
 from fastapi import WebSocket
-from rps import Game, FixedActionPlayer
+from rps import Game, FixedActionPlayer, RandomActionPlayer
 from ..models import PlayerInfo, GameRoundState
 from sqlmodel import Session, select
 from ..models import Room
@@ -12,11 +12,13 @@ log = logging.getLogger(__name__)
 
 class GameState:
 
-    def __init__(self, room_id: int, max_players: int, number_of_actions: int):
+    def __init__(self, room_id: int, max_players: int, number_of_actions: int, number_of_bots: int, bots: list[str]):
         log.info(f"Creating new room state for room {room_id}")
         self.room_id = room_id
         self.max_players = max_players
         self.number_of_actions = number_of_actions
+        self.number_of_bots = number_of_bots
+        self.bots = bots
 
         self._connections: dict[str, WebSocket] = {}
         self._player_info: dict[str, PlayerInfo] = {}
@@ -111,26 +113,32 @@ class GameState:
             raise ValueError("Not all players ready")
 
         players = []
+        player_names = []
         for username, action in self.current_round.actions.items():
             players.append(FixedActionPlayer(username, action))
+            player_names.append(username)
+        
+        bots = []
+        for bot in self.bots:
+            bots.append(RandomActionPlayer(bot))
 
-        self.game.players = players
-        original_players = [player.name for player in players]
+        self.game.players = players + bots
+        original_players = player_names + self.bots
         self.round_number = self.game.round_num
-        self.game.round_num += 1
         remaining_players = self.game.play_round()
+        self.game.round_num += 1
         remaining_usernames = [player.name for player in remaining_players]
         eliminated_usernames = [name for name in original_players if name not in remaining_usernames]
         for username in eliminated_usernames:
             self.eliminated_players.add(username)
-            self._player_info[username].is_eliminated = True
+            if username not in self.bots and username in self.active_players:
+                self._player_info[username].is_eliminated = True
 
-        remaining = self.active_players
 
-        if len(remaining) <= 1:
+        if len(remaining_players) <= 1:
             self.game_over = True
             self.game_active = False
-            self.winner = remaining[0] if remaining else None
+            self.winner = remaining_players[0].name if remaining_players else None
 
 
         self.current_round.ready_players = set()
@@ -141,7 +149,7 @@ class GameState:
             "game_number": self.game.game_num,
             "actions": dict(self.current_round.actions),
             "eliminated": eliminated_usernames,
-            "remaining": remaining,
+            "remaining": remaining_usernames,
             "game_over": self.game_over,
             "winner": self.winner,
         }

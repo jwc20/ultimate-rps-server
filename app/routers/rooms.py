@@ -16,12 +16,12 @@ async def create_room(room: RoomCreate, session: SessionDep, current_user: Curre
         room_name=room.room_name,
         max_players=room.max_players,
         number_of_actions=room.number_of_actions,
+        number_of_bots=room.number_of_bots,
         created_by=current_user_id,
     )
     session.add(db_room)
     session.commit()
     session.refresh(db_room)
-    print(db_room.id)
     return db_room
 
 

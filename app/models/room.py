@@ -5,6 +5,7 @@ class RoomBase(SQLModel):
     room_name: str = Field(index=True)
     max_players: int = Field(default=None)
     number_of_players: int = Field(default=0)
+    number_of_bots: int = Field(default=0)
     number_of_actions: int = Field(default=None)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     disabled: bool = Field(default=False)

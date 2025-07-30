@@ -28,13 +28,15 @@ class WebSocketHandler:
 
         try:
             await room.add_player(user_id, username, websocket, session)
-
+            
+            bot_names = [bot for bot in room.bots]
+            
             await manager.broadcast_to_room(
                 room_id,
                 {
                     "type": "player_joined",
                     "username": username,
-                    "players": room.active_players,
+                    "players": room.active_players + bot_names,
                 },
             )
 

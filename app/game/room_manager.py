@@ -2,6 +2,7 @@ from . import GameState
 from broadcaster import Broadcast
 from sqlmodel import Session, select
 from ..models import Room
+from rps import RandomActionPlayer
 
 import json 
 import logging 
@@ -19,13 +20,19 @@ class RoomManager:
             room = session.exec(select(Room).where(Room.id == int(room_id))).first()
             if not room:
                 raise ValueError(f"Room {room_id} not found in database")
+            
+            bots = list()
+            for i in range(room.number_of_bots):
+                bot_name = f"bot{i}"
+                bots.append(bot_name)
 
             self.rooms[room_id] = GameState(
                 room_id=int(room_id),
                 max_players=room.max_players,
                 number_of_actions=room.number_of_actions,
+                number_of_bots=room.number_of_bots,
+                bots=bots,
             )
-
         return self.rooms[room_id]
 
     async def broadcast_to_room(self, room_id: str, message: dict) -> None:
