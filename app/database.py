@@ -1,35 +1,60 @@
+import sqlite3
 import logging
-from typing import Annotated
+from typing import Annotated, Generator
 from fastapi import Depends
-from sqlmodel import Session, SQLModel, create_engine
-from .config import DEV, SQLITE_URL, POSTGRES_URL
+from .config import DB_PATH
 
 logger = logging.getLogger(__name__)
 
-if DEV:
-    # SQLite for development
-    engine = create_engine(
-        SQLITE_URL,
-        connect_args={"check_same_thread": False}
-    )
-    logger.info("Using SQLite database for development")
-else:
-    # PostgreSQL for production
-    if not POSTGRES_URL:
-        raise ValueError("POSTGRES_URL environment variable is required in production")
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS user (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    hashed_password TEXT NOT NULL,
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    disabled INTEGER NOT NULL DEFAULT 0
+);
 
-    engine = create_engine(POSTGRES_URL)
-    logger.info("Using PostgreSQL database for production")
+CREATE TABLE IF NOT EXISTS room (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_name TEXT NOT NULL,
+    max_players INTEGER,
+    number_of_players INTEGER NOT NULL DEFAULT 0,
+    number_of_actions INTEGER,
+    created_at TEXT NOT NULL,
+    disabled INTEGER NOT NULL DEFAULT 0,
+    created_by INTEGER NOT NULL REFERENCES user(id)
+);
+
+CREATE TABLE IF NOT EXISTS message (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_id INTEGER NOT NULL REFERENCES room(id),
+    username TEXT NOT NULL,
+    message TEXT NOT NULL,
+    type TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+"""
 
 
-def create_db_and_tables():
-    SQLModel.metadata.create_all(engine)
+def create_db_and_tables() -> None:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.executescript(_SCHEMA)
     logger.info("Database tables created")
 
 
-def get_session():
-    with Session(engine) as session:
-        yield session
+def get_session() -> Generator[sqlite3.Connection, None, None]:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
-SessionDep = Annotated[Session, Depends(get_session)]
+SessionDep = Annotated[sqlite3.Connection, Depends(get_session)]
