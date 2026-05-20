@@ -7,6 +7,10 @@ from app.auth.utils import get_user_by_username, verify_password
 
 router = APIRouter(prefix="/users", tags=["users"])
 
+# Whitelists guard against column-name injection when building dynamic UPDATE clauses
+_ALLOWED_USER_UPDATE_COLS = {"username", "disabled", "hashed_password"}
+_ALLOWED_USERNAME_UPDATE_COLS = {"username"}
+
 
 def _row_to_user_public(row) -> UserPublic:
     return UserPublic(id=row["id"], username=row["username"], disabled=bool(row["disabled"]))
@@ -80,6 +84,7 @@ def update_user(
     if user_update.password is not None:
         updates["hashed_password"] = get_password_hash(user_update.password)
 
+    updates = {k: v for k, v in updates.items() if k in _ALLOWED_USER_UPDATE_COLS}
     if updates:
         set_clause = ", ".join(f"{key} = ?" for key in updates)
         values = list(updates.values()) + [user_id]
@@ -121,6 +126,7 @@ def change_user_username(user_id: int, user_update_username: UserUpdateUsername,
         raise HTTPException(status_code=404, detail="User not found")
 
     updates = user_update_username.model_dump(exclude_unset=True)
+    updates = {k: v for k, v in updates.items() if k in _ALLOWED_USERNAME_UPDATE_COLS}
     if updates:
         set_clause = ", ".join(f"{key} = ?" for key in updates)
         values = list(updates.values()) + [user_id]

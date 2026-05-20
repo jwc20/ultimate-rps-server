@@ -173,7 +173,6 @@ class WebSocketHandler:
             "INSERT INTO message (room_id, username, message, type, created_at) VALUES (?, ?, ?, ?, ?)",
             (int(room_id), username, msg_data.get("message", ""), "message", created_at),
         )
-        conn.commit()
 
         await manager.broadcast_to_room(
             room_id,
