@@ -1,7 +1,6 @@
+import sqlite3
 from . import GameState
 from broadcaster import Broadcast
-from sqlmodel import Session, select
-from ..models import Room
 
 import json 
 import logging 
@@ -14,16 +13,20 @@ class RoomManager:
         self.broadcast = broadcast
         self.rooms: dict[str, GameState] = {}
 
-    async def get_or_create_room(self, room_id: str, session: Session) -> GameState:
+    async def get_or_create_room(self, room_id: str, conn: sqlite3.Connection) -> GameState:
         if room_id not in self.rooms:
-            room = session.exec(select(Room).where(Room.id == int(room_id))).first()
-            if not room:
+            cursor = conn.execute(
+                "SELECT id, max_players, number_of_actions FROM room WHERE id = ?",
+                (int(room_id),),
+            )
+            row = cursor.fetchone()
+            if not row:
                 raise ValueError(f"Room {room_id} not found in database")
 
             self.rooms[room_id] = GameState(
                 room_id=int(room_id),
-                max_players=room.max_players,
-                number_of_actions=room.number_of_actions,
+                max_players=row["max_players"],
+                number_of_actions=row["number_of_actions"],
             )
 
         return self.rooms[room_id]

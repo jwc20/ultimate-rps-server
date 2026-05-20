@@ -1,9 +1,8 @@
+import sqlite3
 import time
 from fastapi import WebSocket
 from rps import Game, FixedActionPlayer
 from ..models import PlayerInfo, GameRoundState
-from sqlmodel import Session, select
-from ..models import Room
 
 import logging
 
@@ -51,7 +50,7 @@ class GameState:
         return list(self._kicked_players)
     
 
-    async def add_player(self, user_id: str, username: str, websocket: WebSocket, session: Session) -> None:
+    async def add_player(self, user_id: str, username: str, websocket: WebSocket, conn: sqlite3.Connection) -> None:
         if self.is_full:
             raise ValueError(f"Room {self.room_id} is full")
         if username in self._connections:
@@ -60,27 +59,27 @@ class GameState:
             raise ValueError(f"Player {username} has been kicked")
 
         log.info(f"Adding player {username} to room {self.room_id}")
-        
-        room_db = session.get(Room, self.room_id)
-        room_db.number_of_players += 1
-        session.add(room_db)
-        session.commit()
+
+        conn.execute(
+            "UPDATE room SET number_of_players = number_of_players + 1 WHERE id = ?",
+            (self.room_id,),
+        )
+
         self._connections[username] = websocket
         self._player_info[username] = PlayerInfo(
             user_id=user_id, username=username, connected_at=time.time()
         )        
 
-    async def remove_player(self, username: str, session: Session) -> None:
+    async def remove_player(self, username: str, conn: sqlite3.Connection) -> None:
         if username not in self._connections:
             return
 
         log.info(f"Removing player {username} from room {self.room_id}")
 
-        room_db = session.get(Room, self.room_id)
-        room_db.number_of_players -= 1
-        session.add(room_db)
-        session.commit()
-
+        conn.execute(
+            "UPDATE room SET number_of_players = number_of_players - 1 WHERE id = ?",
+            (self.room_id,),
+        )
 
         del self._connections[username]
         del self._player_info[username]

@@ -1,11 +1,10 @@
 import json
 import logging
+import sqlite3
 from datetime import datetime, timezone
-from sqlmodel import Session
 from fastapi import WebSocket
 from fastapi.websockets import WebSocketState
 
-from ..models import Message
 from ..game import RoomManager
 
 log = logging.getLogger(__name__)
@@ -20,14 +19,14 @@ class WebSocketHandler:
             room_id: str,
             user_id: str,
             username: str,
-            session: Session,
+            conn: sqlite3.Connection,
             manager: RoomManager,
     ) -> None:
         """Main message handling loop for WebSocket connections"""
-        room = await manager.get_or_create_room(room_id, session)
+        room = await manager.get_or_create_room(room_id, conn)
 
         try:
-            await room.add_player(user_id, username, websocket, session)
+            await room.add_player(user_id, username, websocket, conn)
 
             await manager.broadcast_to_room(
                 room_id,
@@ -42,7 +41,7 @@ class WebSocketHandler:
                 try:
                     msg_data = json.loads(message)
                     await WebSocketHandler._process_message(
-                        msg_data, websocket, room_id, username, session, manager, room
+                        msg_data, websocket, room_id, username, conn, manager, room
                     )
                 except (json.JSONDecodeError, ValueError) as e:
                     log.error(f"Error processing message from {username}: {e}")
@@ -51,7 +50,7 @@ class WebSocketHandler:
                     )
 
         finally:
-            await room.remove_player(username, session)
+            await room.remove_player(username, conn)
             await manager.broadcast_to_room(
                 room_id,
                 {
@@ -67,7 +66,7 @@ class WebSocketHandler:
             websocket: WebSocket,
             room_id: str,
             username: str,
-            session: Session,
+            conn: sqlite3.Connection,
             manager: RoomManager,
             room,
     ) -> None:
@@ -88,7 +87,7 @@ class WebSocketHandler:
             await WebSocketHandler._handle_reset_game(room_id, manager, room)
         elif msg_type == "message":
             await WebSocketHandler._handle_chat_message(
-                msg_data, room_id, username, session, manager
+                msg_data, room_id, username, conn, manager
             )
 
     @staticmethod
@@ -165,18 +164,15 @@ class WebSocketHandler:
             msg_data: dict,
             room_id: str,
             username: str,
-            session: Session,
+            conn: sqlite3.Connection,
             manager: RoomManager,
     ) -> None:
         """Handle chat messages"""
-        db_message = Message(
-            room_id=int(room_id),
-            username=username,
-            message=msg_data.get("message", ""),
-            type="message",
+        created_at = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO message (room_id, username, message, type, created_at) VALUES (?, ?, ?, ?, ?)",
+            (int(room_id), username, msg_data.get("message", ""), "message", created_at),
         )
-        session.add(db_message)
-        session.commit()
 
         await manager.broadcast_to_room(
             room_id,
@@ -184,7 +180,7 @@ class WebSocketHandler:
                 "type": "message",
                 "username": username,
                 "message": msg_data.get("message", ""),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": created_at,
             },
         )
 

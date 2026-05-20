@@ -1,9 +1,9 @@
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import bcrypt
 import jwt
 from passlib.context import CryptContext
-from sqlmodel import Session, select
 from app.models import User
 from app.config import SECRET_KEY, ALGORITHM
 
@@ -25,15 +25,26 @@ def get_password_hash(password):
     return pwd_context.hash(password)
 
 
-def get_user_by_username(session: Session, username: str):
+def get_user_by_username(conn: sqlite3.Connection, username: str) -> User | None:
     username_cleaned = username.lower().strip()
-    statement = select(User).where(User.username == username_cleaned)
-    user = session.exec(statement).first()
-    return user
+    cursor = conn.execute(
+        "SELECT id, username, hashed_password, is_admin, disabled FROM user WHERE username = ?",
+        (username_cleaned,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return User(
+        id=row["id"],
+        username=row["username"],
+        hashed_password=row["hashed_password"],
+        is_admin=bool(row["is_admin"]),
+        disabled=bool(row["disabled"]),
+    )
 
 
-def authenticate_user(session: Session, username: str, password: str):
-    user = get_user_by_username(session, username)
+def authenticate_user(conn: sqlite3.Connection, username: str, password: str):
+    user = get_user_by_username(conn, username)
     if not user:
         return False
     if not verify_password(password, user.hashed_password):

@@ -1,10 +1,9 @@
+import sqlite3
 import logging
-from sqlmodel import Session, select
 import jwt
 import anyio
 from broadcaster import Broadcast
 
-from ..models import Message
 from ..config import SECRET_KEY, ALGORITHM
 from ..database import get_session
 from .auth import get_user_by_username
@@ -27,7 +26,7 @@ def get_room_manager() -> RoomManager:
 
 
 async def authenticate_websocket(
-        websocket: WebSocket, token: str | None, session: Session
+        websocket: WebSocket, token: str | None, conn: sqlite3.Connection
 ) -> tuple[str, str] | None:
     """Authenticate WebSocket connection and return user_id and username"""
     if not token:
@@ -41,7 +40,7 @@ async def authenticate_websocket(
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return None
 
-        current_user = get_user_by_username(session, username=username)
+        current_user = get_user_by_username(conn, username=username)
         if not current_user:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return None
@@ -53,22 +52,24 @@ async def authenticate_websocket(
         return None
 
 
-async def send_message_history(websocket: WebSocket, room_id: str, session: Session) -> None:
+async def send_message_history(websocket: WebSocket, room_id: str, conn: sqlite3.Connection) -> None:
     """Send recent message history to newly connected client"""
-    messages = session.exec(
-        select(Message)
-        .where(Message.room_id == int(room_id))
-        .order_by(Message.created_at.desc())
-        .limit(50)
-    ).all()
+    cursor = conn.execute(
+        """SELECT username, message, created_at FROM message
+           WHERE room_id = ?
+           ORDER BY created_at DESC
+           LIMIT 50""",
+        (int(room_id),),
+    )
+    messages = cursor.fetchall()
 
     for msg in reversed(messages):
         await websocket.send_json(
             {
                 "type": "history",
-                "username": msg.username,
-                "message": msg.message,
-                "timestamp": msg.created_at.isoformat(),
+                "username": msg["username"],
+                "message": msg["message"],
+                "timestamp": msg["created_at"],
             }
         )
 
@@ -78,13 +79,13 @@ async def websocket_endpoint(
         websocket: WebSocket,
         room_id: str,
         token: str | None = Query(None),
-        session: Session = Depends(get_session),
+        conn: sqlite3.Connection = Depends(get_session),
 ) -> None:
     """Main WebSocket endpoint for room connections"""
     manager = get_room_manager()
 
     # Authenticate the WebSocket connection
-    auth_result = await authenticate_websocket(websocket, token, session)
+    auth_result = await authenticate_websocket(websocket, token, conn)
     if not auth_result:
         return
 
@@ -93,7 +94,7 @@ async def websocket_endpoint(
 
     try:
         # Send message history to the client
-        await send_message_history(websocket, room_id, session)
+        await send_message_history(websocket, room_id, conn)
 
         # Start concurrent tasks for message handling and broadcasting
         async with anyio.create_task_group() as task_group:
@@ -105,7 +106,7 @@ async def websocket_endpoint(
                     room_id=room_id,
                     user_id=user_id,
                     username=username,
-                    session=session,
+                    conn=conn,
                     manager=manager,
                 )
                 task_group.cancel_scope.cancel()

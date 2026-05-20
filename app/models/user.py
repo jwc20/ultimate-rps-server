@@ -1,21 +1,10 @@
-from sqlmodel import Field, SQLModel
+from dataclasses import dataclass, field
 
 
-class UserBase(SQLModel):
-    username: str = Field(unique=True, index=True)
-    is_admin: bool = Field(default=False)
-    disabled: bool = Field(default=False)
-
-
-class User(UserBase, table=True):
-    id: int | None = Field(default=None, primary_key=True)
+@dataclass
+class User:
+    username: str
     hashed_password: str
-    
-    
-# class UserGameState(SQLModel, table=True):
-#     id: int | None = Field(default=None, primary_key=True)
-#     user_id: int = Field(foreign_key="user.id", index=True)
-#     wins: int = Field(default=0)
-#     losses: int = Field(default=0)
-
-
+    is_admin: bool = False
+    disabled: bool = False
+    id: int | None = None
