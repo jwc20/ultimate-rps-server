@@ -64,7 +64,6 @@ class GameState:
             "UPDATE room SET number_of_players = number_of_players + 1 WHERE id = ?",
             (self.room_id,),
         )
-        conn.commit()
 
         self._connections[username] = websocket
         self._player_info[username] = PlayerInfo(
@@ -81,7 +80,6 @@ class GameState:
             "UPDATE room SET number_of_players = number_of_players - 1 WHERE id = ?",
             (self.room_id,),
         )
-        conn.commit()
 
         del self._connections[username]
         del self._player_info[username]
